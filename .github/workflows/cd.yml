@@ -15,10 +15,10 @@ env:
 jobs:
 
   # ============================================================
-  # Terraform Plan
+  # Terraform Plan - DEV
   # ============================================================
   terraform-plan:
-    name: Terraform Plan
+    name: Terraform Plan - DEV
     runs-on: ubuntu-latest
 
     defaults:
@@ -100,23 +100,23 @@ jobs:
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan
+          name: terraform-plan-dev
           path: 23-08-26/env/dev/tfplan
 
 
   # ============================================================
-  # Terraform Apply
+  # Terraform Apply - DEV
   # ============================================================
   terraform-apply:
-    name: Terraform Apply
+    name: Terraform Apply - DEV
     runs-on: ubuntu-latest
 
     needs:
       - terraform-plan
 
-    # Production approval
+    # DEV approval required before Apply
     environment:
-      name: production
+      name: dev
 
     defaults:
       run:
@@ -149,6 +149,7 @@ jobs:
       # --------------------------------------------------------
       # Check terraform.tfvars
       # --------------------------------------------------------
+      - name: Check terraform.tfvars
       - name: Check Terraform Variables File
         shell: bash
         run: |
@@ -181,7 +182,7 @@ jobs:
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
-          name: terraform-plan
+          name: terraform-plan-dev
           path: 23-08-26/env/dev
 
       # --------------------------------------------------------
