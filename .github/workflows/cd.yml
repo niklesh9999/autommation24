@@ -6,7 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-
 permissions:
   contents: read
 
@@ -14,17 +13,35 @@ env:
   TF_IN_AUTOMATION: true
 
 jobs:
+
+  # ============================================================
+  # Terraform Plan
+  # ============================================================
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./23-08-26/env/dev
+
     steps:
+
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # --------------------------------------------------------
+      # Setup Terraform
+      # --------------------------------------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # --------------------------------------------------------
+      # Create terraform.tfvars
+      # --------------------------------------------------------
       - name: Create Terraform Variables File
         shell: bash
         run: |
@@ -32,12 +49,18 @@ jobs:
           ${{ secrets.TFVARS_CONTENT }}
           EOF
 
+      # --------------------------------------------------------
+      # Check terraform.tfvars
+      # --------------------------------------------------------
       - name: Check Terraform Variables File
         shell: bash
         run: |
           test -s terraform.tfvars
           echo "terraform.tfvars created successfully"
 
+      # --------------------------------------------------------
+      # Azure Login
+      # --------------------------------------------------------
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -48,23 +71,42 @@ jobs:
               "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
-            
 
+      # --------------------------------------------------------
+      # Terraform Init
+      # --------------------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
+      # --------------------------------------------------------
+      # Terraform Validate
+      # --------------------------------------------------------
       - name: Terraform Validate
         run: terraform validate
 
+      # --------------------------------------------------------
+      # Terraform Plan
+      # --------------------------------------------------------
       - name: Terraform Plan
-        run: terraform plan -input=false -var-file="terraform.tfvars" -out="tfplan"
+        run: |
+          terraform plan \
+            -input=false \
+            -var-file="terraform.tfvars" \
+            -out="tfplan"
 
+      # --------------------------------------------------------
+      # Upload Terraform Plan
+      # --------------------------------------------------------
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: tfplan
+          path: 23-08-26/env/dev/tfplan
 
+
+  # ============================================================
+  # Terraform Apply
+  # ============================================================
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
@@ -72,16 +114,31 @@ jobs:
     needs:
       - terraform-plan
 
+    # Production approval
     environment:
       name: production
 
+    defaults:
+      run:
+        working-directory: ./23-08-26/env/dev
+
     steps:
+
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # --------------------------------------------------------
+      # Setup Terraform
+      # --------------------------------------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # --------------------------------------------------------
+      # Create terraform.tfvars
+      # --------------------------------------------------------
       - name: Create Terraform Variables File
         shell: bash
         run: |
@@ -89,6 +146,18 @@ jobs:
           ${{ secrets.TFVARS_CONTENT }}
           EOF
 
+      # --------------------------------------------------------
+      # Check terraform.tfvars
+      # --------------------------------------------------------
+      - name: Check Terraform Variables File
+        shell: bash
+        run: |
+          test -s terraform.tfvars
+          echo "terraform.tfvars created successfully"
+
+      # --------------------------------------------------------
+      # Azure Login
+      # --------------------------------------------------------
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -100,13 +169,33 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
+      # --------------------------------------------------------
+      # Terraform Init
+      # --------------------------------------------------------
       - name: Terraform Init
         run: terraform init -input=false
 
+      # --------------------------------------------------------
+      # Download Terraform Plan
+      # --------------------------------------------------------
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
           name: terraform-plan
+          path: 23-08-26/env/dev
 
+      # --------------------------------------------------------
+      # Check downloaded plan
+      # --------------------------------------------------------
+      - name: Check Terraform Plan
+        shell: bash
+        run: |
+          ls -la
+          test -f tfplan
+          echo "Terraform plan downloaded successfully"
+
+      # --------------------------------------------------------
+      # Terraform Apply
+      # --------------------------------------------------------
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve tfplan
