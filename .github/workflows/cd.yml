@@ -1,11 +1,12 @@
-name: Terraform CD
+
+name: Terraform CD - DEV
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -150,7 +151,6 @@ jobs:
       # --------------------------------------------------------
       # Check terraform.tfvars
       # --------------------------------------------------------
-      - name: Check terraform.tfvars
       - name: Check Terraform Variables File
         shell: bash
         run: |
