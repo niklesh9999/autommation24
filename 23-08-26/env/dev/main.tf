@@ -13,10 +13,10 @@ module "vnet" {
 }
 
 module "subnet" {
-  depends_on = [var.vnet]
-  source     = "../../module/subnet"
-  subnet     = var.subnet
+  source = "../../module/subnet"
 
+  subnet  = var.subnet
+  nsg_ids = module.nsg.nsg_ids
 }
 
 module "pip" {
@@ -41,4 +41,10 @@ module "vm" {
   vm = var.vm
 
   nic_ids = module.nic.nic_ids
+}
+
+module "nsg" {
+  source = "../../module/nsg"
+
+  nsg = var.nsg
 }

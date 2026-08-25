@@ -30,3 +30,6 @@ variable "vm" {
   type = map(any)
 }
 
+variable "nsg" {
+  type = map(any)
+}
