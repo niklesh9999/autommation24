@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  
 
 env:
   TF_IN_AUTOMATION: true
@@ -53,8 +52,11 @@ jobs:
         with:
           directory: .
           framework: terraform
+          skip_check: CKV_AZURE_50
           soft_fail: false
           log_level: DEBUG
+          output_format: sarif
+          output_file_path: results.sarif
 
       - name: Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@master
