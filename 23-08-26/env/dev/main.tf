@@ -43,7 +43,7 @@ module "nic" {
 module "vm" {
   depends_on = [module.nic]
 
-  source   = "../../module/vm"
-  vm       = var.vm
-  nic_ids  = module.nic.nic_ids
+  source  = "../../module/vm"
+  vm      = var.vm
+  nic_ids = module.nic.nic_ids
 }
