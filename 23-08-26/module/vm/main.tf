@@ -1,4 +1,4 @@
-#checkov:skip=CKV_AZURE_50:No VM extensions are configured for this VM
+#checkov:skip=CKV_AZURE_50:No VM extension is configured
 resource "azurerm_linux_virtual_machine" "vm" {
 
   for_each = var.vm
