@@ -1,3 +1,4 @@
+```yaml
 name: Terraform DevSecOps Security Scan
 
 on:
@@ -13,7 +14,7 @@ on:
 
 permissions:
   contents: read
-  
+  security-events: write
 
 env:
   TF_IN_AUTOMATION: true
@@ -26,11 +27,13 @@ jobs:
 
     steps:
 
+      # Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
@@ -43,11 +46,13 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # Secret Scan
       - name: Gitleaks Secret Scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Checkov IaC Scan
       - name: Checkov IaC Scan
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -55,7 +60,17 @@ jobs:
           framework: terraform
           soft_fail: false
           log_level: DEBUG
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
 
+      # Upload Checkov SARIF
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      # Trivy Filesystem Scan
       - name: Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@master
         with:
