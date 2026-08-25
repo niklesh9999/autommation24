@@ -1,4 +1,5 @@
 resource "azurerm_linux_virtual_machine" "vm" {
+
   for_each = var.vm
 
   name                = each.value.name
@@ -10,6 +11,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
   network_interface_ids = [
     var.nic_ids[each.value.nic_key]
   ]
+
+  identity {
+    type = "SystemAssigned"
+  }
 
   admin_ssh_key {
     username   = each.value.admin_username
