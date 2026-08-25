@@ -1,4 +1,5 @@
 #checkov:skip=CKV_AZURE_50:No VM extension is configured
+
 resource "azurerm_linux_virtual_machine" "vm" {
 
   for_each = var.vm
@@ -15,7 +16,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   admin_ssh_key {
     username   = each.value.admin_username
-    public_key = file(each.value.ssh_public_key_path)
+    public_key = each.value.ssh_public_key
   }
 
   os_disk {
