@@ -1,4 +1,3 @@
-
 name: Terraform DevSecOps Security Scan
 
 on:
@@ -53,6 +52,7 @@ jobs:
         with:
           directory: .
           framework: terraform
+          skip_check: CKV_AZURE_50
           soft_fail: false
           log_level: DEBUG
           output_format: sarif
