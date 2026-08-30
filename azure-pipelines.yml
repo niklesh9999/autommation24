@@ -1,7 +1,5 @@
 trigger:
-  branches:
-    include:
-      - features
+- fetaure
 
 pool:
   name: Terraform-Agent-Pool
@@ -124,35 +122,17 @@ steps:
 
 
 # ============================================================
-# 5. INSTALL PYTHON
+# 5. CHECK PYTHON
 # ============================================================
 
 - powershell: |
     Write-Host "===================================="
-    Write-Host "Installing Python"
+    Write-Host "Checking Python"
     Write-Host "===================================="
 
-    $pythonUrl = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
-    $installer = "$(Agent.TempDirectory)\python-installer.exe"
-
-    Invoke-WebRequest `
-      -Uri $pythonUrl `
-      -OutFile $installer
-
-    Start-Process `
-      -FilePath $installer `
-      -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" `
-      -Wait
-
-    $pythonDir = "C:\Program Files\Python312"
-    $scriptsDir = "C:\Program Files\Python312\Scripts"
-
-    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
-
     python --version
-
     python -m pip --version
-  displayName: 'Install Python'
+  displayName: 'Verify Python'
 
 
 # ============================================================
@@ -163,13 +143,6 @@ steps:
     Write-Host "===================================="
     Write-Host "Installing Checkov"
     Write-Host "===================================="
-
-    $pythonDir = "C:\Program Files\Python312"
-    $scriptsDir = "C:\Program Files\Python312\Scripts"
-
-    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
-
-    python -m pip install --upgrade pip
 
     python -m pip install checkov
 
@@ -186,11 +159,6 @@ steps:
     Write-Host "Running Checkov"
     Write-Host "===================================="
 
-    $pythonDir = "C:\Program Files\Python312"
-    $scriptsDir = "C:\Program Files\Python312\Scripts"
-
-    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
-
     checkov `
       -d "$(Build.SourcesDirectory)\23-08-26" `
       --framework terraform `
@@ -206,84 +174,7 @@ steps:
 
 
 # ============================================================
-# 8. INSTALL NODE.JS
-# ============================================================
-
-- powershell: |
-    Write-Host "===================================="
-    Write-Host "Installing Node.js"
-    Write-Host "===================================="
-
-    $nodeUrl = "https://nodejs.org/dist/v22.18.0/node-v22.18.0-x64.msi"
-    $installer = "$(Agent.TempDirectory)\nodejs.msi"
-
-    Invoke-WebRequest `
-      -Uri $nodeUrl `
-      -OutFile $installer
-
-    Start-Process `
-      -FilePath "msiexec.exe" `
-      -ArgumentList "/i `"$installer`" /qn /norestart" `
-      -Wait
-
-    $nodePath = "C:\Program Files\nodejs"
-
-    $env:Path = "$nodePath;$env:Path"
-
-    node --version
-    npm --version
-  displayName: 'Install Node.js'
-
-
-# ============================================================
-# 9. INSTALL SNYK
-# ============================================================
-
-- powershell: |
-    Write-Host "===================================="
-    Write-Host "Installing Snyk"
-    Write-Host "===================================="
-
-    $nodePath = "C:\Program Files\nodejs"
-
-    $env:Path = "$nodePath;$env:Path"
-
-    npm install --global snyk
-
-    snyk --version
-  displayName: 'Install Snyk'
-
-
-# ============================================================
-# 10. SNYK IaC SCAN
-# ============================================================
-
-- powershell: |
-    Write-Host "===================================="
-    Write-Host "Running Snyk IaC Scan"
-    Write-Host "===================================="
-
-    if (-not $env:SNYK_TOKEN) {
-      Write-Warning "SNYK_TOKEN is not configured."
-      Write-Warning "Skipping Snyk scan."
-      exit 0
-    }
-
-    snyk auth $env:SNYK_TOKEN
-
-    snyk iac test "$(Build.SourcesDirectory)\23-08-26"
-
-    if ($LASTEXITCODE -ne 0) {
-      Write-Error "Snyk IaC scan failed."
-      exit 1
-    }
-  displayName: 'Snyk - IaC Security Scan'
-  env:
-    SNYK_TOKEN: $(SNYK_TOKEN)
-
-
-# ============================================================
-# 11. TERRAFORM FORMAT
+# 8. TERRAFORM FORMAT CHECK
 # ============================================================
 
 - powershell: |
@@ -303,7 +194,7 @@ steps:
 
 
 # ============================================================
-# 12. TERRAFORM INIT
+# 9. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
@@ -318,7 +209,7 @@ steps:
 
 
 # ============================================================
-# 13. TERRAFORM VALIDATE
+# 10. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
@@ -338,7 +229,7 @@ steps:
 
 
 # ============================================================
-# 14. PUBLISH SECURITY REPORTS
+# 11. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -351,7 +242,7 @@ steps:
 
 
 # ============================================================
-# 15. CI COMPLETE
+# 12. CI COMPLETE
 # ============================================================
 
 - powershell: |
@@ -359,7 +250,7 @@ steps:
     Write-Host "       DEV CI PIPELINE COMPLETED"
     Write-Host "=============================================="
 
-    Write-Host "Branch       : $(Build.SourceBranch)"
-    Write-Host "Build        : $(Build.BuildNumber)"
-    Write-Host "Environment  : DEV"
+    Write-Host "Branch      : $(Build.SourceBranch)"
+    Write-Host "Build       : $(Build.BuildNumber)"
+    Write-Host "Environment : DEV"
   displayName: 'CI Pipeline Completed'
