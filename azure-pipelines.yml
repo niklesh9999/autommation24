@@ -21,14 +21,10 @@ steps:
 
 
 # ============================================================
-# 2. CONFIGURE TOOL PATHS
+# 2. VERIFY ALL DEVSECOPS TOOLS
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "CONFIGURING DEVSECOPS TOOL PATHS"
-    Write-Host "=============================================="
-
     $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
     $pythonScripts = "$pythonPath\Scripts"
 
@@ -39,7 +35,9 @@ steps:
 
     $env:PATH = "$pythonScripts;$pythonPath;$gitLeaksPath;$nodePath;$snykPath;$env:PATH"
 
-    Write-Host "PATH configured."
+    Write-Host "============================================================"
+    Write-Host "VERIFYING DEVSECOPS TOOLS"
+    Write-Host "============================================================"
 
     Write-Host ""
     Write-Host "Git:"
@@ -77,6 +75,11 @@ steps:
     Write-Host "Snyk:"
     snyk.cmd --version
 
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "ALL TOOLS VERIFIED"
+    Write-Host "============================================================"
+
   displayName: 'Verify All DevSecOps Tools'
 
 
@@ -89,14 +92,17 @@ steps:
 
     $env:PATH = "$gitLeaksPath;$env:PATH"
 
-    Write-Host "=============================================="
-    Write-Host "Running GitLeaks Secret Scan"
-    Write-Host "=============================================="
+    Write-Host "============================================================"
+    Write-Host "GITLEAKS SECRET SCAN"
+    Write-Host "============================================================"
 
     New-Item `
       -ItemType Directory `
       -Force `
       -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
+
+    Write-Host "Scanning:"
+    Write-Host "$(Build.SourcesDirectory)"
 
     gitleaks detect `
       --source "$(Build.SourcesDirectory)" `
@@ -106,20 +112,21 @@ steps:
 
     $exitCode = $LASTEXITCODE
 
-    Write-Host "GitLeaks exit code: $exitCode"
+    Write-Host ""
+    Write-Host "GitLeaks Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
       Write-Error "GitLeaks detected secrets."
       exit 1
     }
 
-    Write-Host "GitLeaks scan passed."
+    Write-Host "GitLeaks scan PASSED."
 
   displayName: 'GitLeaks - Secret Scan'
 
 
 # ============================================================
-# 4. CHECKOV IaC SECURITY SCAN
+# 4. CHECKOV START
 # ============================================================
 
 - powershell: |
@@ -128,50 +135,361 @@ steps:
 
     $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
 
-    Write-Host "=============================================="
-    Write-Host "Running Checkov IaC Security Scan"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "CHECKOV SECURITY SCAN STARTED"
+    Write-Host "============================================================"
+
+    checkov --version
+
+  displayName: 'Checkov - Start'
+
+
+# ============================================================
+# 5. CHECKOV - RESOURCE GROUP
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[1/7] CHECKOV - RESOURCE GROUP"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\rg"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "Resource Group Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "Resource Group Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "RESOURCE GROUP SCAN PASSED."
+
+  displayName: 'Checkov - Resource Group'
+
+
+# ============================================================
+# 6. CHECKOV - VNET
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[2/7] CHECKOV - VIRTUAL NETWORK"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\vnet"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "VNET Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "VNET Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "VNET SCAN PASSED."
+
+  displayName: 'Checkov - VNET'
+
+
+# ============================================================
+# 7. CHECKOV - PUBLIC IP
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[3/7] CHECKOV - PUBLIC IP"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\pip"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "Public IP Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "Public IP Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "PUBLIC IP SCAN PASSED."
+
+  displayName: 'Checkov - Public IP'
+
+
+# ============================================================
+# 8. CHECKOV - SUBNET
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[4/7] CHECKOV - SUBNET"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\subnet"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "Subnet Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "Subnet Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "SUBNET SCAN PASSED."
+
+  displayName: 'Checkov - Subnet'
+
+
+# ============================================================
+# 9. CHECKOV - NIC
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[5/7] CHECKOV - NETWORK INTERFACE"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\nic"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "NIC Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "NIC Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "NIC SCAN PASSED."
+
+  displayName: 'Checkov - NIC'
+
+
+# ============================================================
+# 10. CHECKOV - NSG
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[6/7] CHECKOV - NETWORK SECURITY GROUP"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\nsg"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "NSG Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "NSG Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "NSG SCAN PASSED."
+
+  displayName: 'Checkov - NSG'
+
+
+# ============================================================
+# 11. CHECKOV - VM
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "[7/7] CHECKOV - VIRTUAL MACHINE"
+    Write-Host "============================================================"
+
+    $path = "$(Build.SourcesDirectory)\23-08-26\module\vm"
+
+    Write-Host "Scanning path:"
+    Write-Host $path
+
+    checkov `
+      -d "$path" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output cli
+
+    $exitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "VM Checkov Exit Code: $exitCode"
+
+    if ($exitCode -ne 0) {
+      Write-Error "VM Checkov scan failed."
+      exit 1
+    }
+
+    Write-Host "VM SCAN PASSED."
+
+  displayName: 'Checkov - VM'
+
+
+# ============================================================
+# 12. CHECKOV - FULL TERRAFORM SCAN
+# ============================================================
+
+- powershell: |
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
+
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "FULL TERRAFORM CHECKOV SCAN"
+    Write-Host "============================================================"
+
+    $scanPath = "$(Build.SourcesDirectory)\23-08-26"
+
+    Write-Host "Full scan path:"
+    Write-Host $scanPath
 
     New-Item `
       -ItemType Directory `
       -Force `
       -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
 
-    Write-Host ""
-    Write-Host "Checkov version:"
-    checkov --version
-
-    Write-Host ""
-    Write-Host "Scanning Terraform code:"
-    Write-Host "$(Build.SourcesDirectory)\23-08-26"
-
     checkov `
-      -d "$(Build.SourcesDirectory)\23-08-26" `
+      -d "$scanPath" `
       --framework terraform `
       --skip-check CKV_AZURE_50 `
-      --output cli `
-      --output sarif `
-      --output-file-path "$(Build.ArtifactStagingDirectory)\checkov.sarif"
+      --output cli
 
     $checkovExitCode = $LASTEXITCODE
 
     Write-Host ""
-    Write-Host "=============================================="
+    Write-Host "============================================================"
     Write-Host "CHECKOV EXIT CODE: $checkovExitCode"
-    Write-Host "=============================================="
+    Write-Host "============================================================"
+
+    # Create SARIF report
+    checkov `
+      -d "$scanPath" `
+      --framework terraform `
+      --skip-check CKV_AZURE_50 `
+      --output sarif `
+      --output-file-path "$(Build.ArtifactStagingDirectory)\checkov.sarif"
 
     if ($checkovExitCode -ne 0) {
-      Write-Error "Checkov found security issues."
+      Write-Error "Full Checkov security scan failed."
       exit 1
     }
 
-    Write-Host "Checkov security scan passed."
+    Write-Host "FULL CHECKOV SCAN PASSED."
 
-  displayName: 'Checkov - IaC Security Scan'
+  displayName: 'Checkov - Full Terraform Scan'
 
 
 # ============================================================
-# 5. SNYK IaC SECURITY SCAN
+# 13. SNYK IaC SCAN
 # ============================================================
 
 - powershell: |
@@ -180,9 +498,10 @@ steps:
 
     $env:PATH = "$nodePath;$snykPath;$env:PATH"
 
-    Write-Host "=============================================="
-    Write-Host "Running Snyk IaC Security Scan"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "SNYK IaC SECURITY SCAN"
+    Write-Host "============================================================"
 
     Write-Host ""
     Write-Host "Snyk version:"
@@ -204,21 +523,22 @@ steps:
     }
 
     Write-Host ""
-    Write-Host "Running Snyk IaC scan..."
+    Write-Host "Scanning Terraform:"
+    Write-Host "$(Build.SourcesDirectory)\23-08-26"
 
     snyk.cmd iac test "$(Build.SourcesDirectory)\23-08-26"
 
     $snykExitCode = $LASTEXITCODE
 
     Write-Host ""
-    Write-Host "Snyk exit code: $snykExitCode"
+    Write-Host "Snyk Exit Code: $snykExitCode"
 
     if ($snykExitCode -ne 0) {
       Write-Error "Snyk IaC scan found security issues."
       exit 1
     }
 
-    Write-Host "Snyk IaC scan passed."
+    Write-Host "Snyk IaC scan PASSED."
 
   displayName: 'Snyk - IaC Security Scan'
 
@@ -227,15 +547,16 @@ steps:
 
 
 # ============================================================
-# 6. TERRAFORM FORMAT CHECK
+# 14. TERRAFORM FORMAT
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "=============================================="
-    Write-Host "Terraform Format Check"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "TERRAFORM FORMAT CHECK"
+    Write-Host "============================================================"
 
     terraform fmt -check -recursive
 
@@ -244,21 +565,22 @@ steps:
       exit 1
     }
 
-    Write-Host "Terraform format check passed."
+    Write-Host "Terraform format check PASSED."
 
   displayName: 'Terraform - Format Check'
 
 
 # ============================================================
-# 7. TERRAFORM INIT
+# 15. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "=============================================="
-    Write-Host "Terraform Init"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "TERRAFORM INIT - DEV"
+    Write-Host "============================================================"
 
     terraform init -input=false
 
@@ -267,21 +589,22 @@ steps:
       exit 1
     }
 
-    Write-Host "Terraform init completed."
+    Write-Host "Terraform init PASSED."
 
   displayName: 'Terraform - Init'
 
 
 # ============================================================
-# 8. TERRAFORM VALIDATE
+# 16. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "=============================================="
-    Write-Host "Terraform Validate"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "TERRAFORM VALIDATE - DEV"
+    Write-Host "============================================================"
 
     terraform validate
 
@@ -290,13 +613,13 @@ steps:
       exit 1
     }
 
-    Write-Host "Terraform validation passed."
+    Write-Host "Terraform validate PASSED."
 
   displayName: 'Terraform - Validate'
 
 
 # ============================================================
-# 9. PUBLISH SECURITY REPORTS
+# 17. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -309,29 +632,38 @@ steps:
 
 
 # ============================================================
-# 10. CI COMPLETE
+# 18. CI COMPLETE
 # ============================================================
 
 - powershell: |
     Write-Host ""
-    Write-Host "=============================================="
+    Write-Host "============================================================"
     Write-Host "       DEV CI PIPELINE COMPLETED"
-    Write-Host "=============================================="
-
-    Write-Host "Branch       : $(Build.SourceBranch)"
-    Write-Host "Build        : $(Build.BuildNumber)"
-    Write-Host "Environment  : DEV"
+    Write-Host "============================================================"
 
     Write-Host ""
-    Write-Host "GitLeaks     : PASSED"
-    Write-Host "Checkov      : PASSED"
-    Write-Host "Snyk IaC     : PASSED"
-    Write-Host "Terraform fmt: PASSED"
-    Write-Host "Terraform init: PASSED"
-    Write-Host "Terraform validate: PASSED"
+    Write-Host "Branch              : $(Build.SourceBranch)"
+    Write-Host "Build               : $(Build.BuildNumber)"
+    Write-Host "Environment         : DEV"
 
     Write-Host ""
-    Write-Host "DEV CI PIPELINE COMPLETED SUCCESSFULLY."
+    Write-Host "GitLeaks             : PASSED"
+    Write-Host "Checkov RG           : PASSED"
+    Write-Host "Checkov VNET         : PASSED"
+    Write-Host "Checkov Public IP    : PASSED"
+    Write-Host "Checkov Subnet       : PASSED"
+    Write-Host "Checkov NIC          : PASSED"
+    Write-Host "Checkov NSG          : PASSED"
+    Write-Host "Checkov VM           : PASSED"
+    Write-Host "Checkov Full Scan    : PASSED"
+    Write-Host "Snyk IaC             : PASSED"
+    Write-Host "Terraform fmt        : PASSED"
+    Write-Host "Terraform init       : PASSED"
+    Write-Host "Terraform validate   : PASSED"
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "DEV CI PIPELINE COMPLETED SUCCESSFULLY"
+    Write-Host "============================================================"
 
   displayName: 'CI Pipeline Completed'
-
