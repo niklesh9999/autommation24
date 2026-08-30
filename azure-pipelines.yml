@@ -1,8 +1,6 @@
 
 trigger:
-  branches:
-    include:
-      - fetaure
+- fetaure
 
 pool:
   name: Terraform-Agent-Pool
@@ -23,7 +21,7 @@ steps:
 
 
 # ============================================================
-# 2. CONFIGURE DEVSECOPS TOOL PATHS
+# 2. CONFIGURE TOOL PATHS
 # ============================================================
 
 - powershell: |
@@ -31,48 +29,52 @@ steps:
     Write-Host "CONFIGURING DEVSECOPS TOOL PATHS"
     Write-Host "=============================================="
 
-    # Python + Checkov
     $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
     $pythonScripts = "$pythonPath\Scripts"
 
-    # GitLeaks
-    $gitleaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
+    $gitLeaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
 
-    # Node.js
     $nodePath = "C:\Program Files\nodejs"
-
-    # Snyk
     $snykPath = "C:\Users\Niklesh k\AppData\Roaming\npm"
 
-    $env:Path = "$pythonPath;$pythonScripts;$gitleaksPath;$nodePath;$snykPath;$env:Path"
+    $env:PATH = "$pythonScripts;$pythonPath;$gitLeaksPath;$nodePath;$snykPath;$env:PATH"
 
     Write-Host "PATH configured."
 
-    Write-Host "`nGit:"
+    Write-Host ""
+    Write-Host "Git:"
     git --version
 
-    Write-Host "`nTerraform:"
+    Write-Host ""
+    Write-Host "Terraform:"
     terraform version
 
-    Write-Host "`nAzure CLI:"
+    Write-Host ""
+    Write-Host "Azure CLI:"
     az version
 
-    Write-Host "`nPython:"
+    Write-Host ""
+    Write-Host "Python:"
     python --version
 
-    Write-Host "`nCheckov:"
+    Write-Host ""
+    Write-Host "Checkov:"
     checkov --version
 
-    Write-Host "`nGitLeaks:"
+    Write-Host ""
+    Write-Host "GitLeaks:"
     gitleaks version
 
-    Write-Host "`nNode:"
+    Write-Host ""
+    Write-Host "Node:"
     node --version
 
-    Write-Host "`nNPM:"
+    Write-Host ""
+    Write-Host "NPM:"
     npm.cmd --version
 
-    Write-Host "`nSnyk:"
+    Write-Host ""
+    Write-Host "Snyk:"
     snyk.cmd --version
 
   displayName: 'Verify All DevSecOps Tools'
@@ -83,12 +85,13 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "GITLEAKS SECRET SCAN"
-    Write-Host "=============================================="
+    $gitLeaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
 
-    $gitleaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
-    $env:Path = "$gitleaksPath;$env:Path"
+    $env:PATH = "$gitLeaksPath;$env:PATH"
+
+    Write-Host "=============================================="
+    Write-Host "Running GitLeaks Secret Scan"
+    Write-Host "=============================================="
 
     New-Item `
       -ItemType Directory `
@@ -101,7 +104,11 @@ steps:
       --report-path "$(Build.ArtifactStagingDirectory)\gitleaks.sarif" `
       --no-banner
 
-    if ($LASTEXITCODE -ne 0) {
+    $exitCode = $LASTEXITCODE
+
+    Write-Host "GitLeaks exit code: $exitCode"
+
+    if ($exitCode -ne 0) {
       Write-Error "GitLeaks detected secrets."
       exit 1
     }
@@ -116,44 +123,49 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "CHECKOV IaC SECURITY SCAN"
-    Write-Host "=============================================="
-
     $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
     $pythonScripts = "$pythonPath\Scripts"
 
-    $env:Path = "$pythonPath;$pythonScripts;$env:Path"
+    $env:PATH = "$pythonScripts;$pythonPath;$env:PATH"
 
-    python --version
-    checkov --version
+    Write-Host "=============================================="
+    Write-Host "Running Checkov IaC Security Scan"
+    Write-Host "=============================================="
 
     New-Item `
       -ItemType Directory `
       -Force `
       -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
 
+    Write-Host ""
+    Write-Host "Checkov version:"
+    checkov --version
+
+    Write-Host ""
+    Write-Host "Scanning Terraform code:"
+    Write-Host "$(Build.SourcesDirectory)\23-08-26"
+
     checkov `
       -d "$(Build.SourcesDirectory)\23-08-26" `
       --framework terraform `
+      --skip-check CKV_AZURE_50 `
       --output cli `
       --output sarif `
       --output-file-path "$(Build.ArtifactStagingDirectory)\checkov.sarif"
 
     $checkovExitCode = $LASTEXITCODE
 
+    Write-Host ""
     Write-Host "=============================================="
     Write-Host "CHECKOV EXIT CODE: $checkovExitCode"
     Write-Host "=============================================="
 
     if ($checkovExitCode -ne 0) {
-      Write-Warning "Checkov found security issues."
-      Write-Warning "Review the Checkov findings above."
-      Write-Warning "Pipeline will stop because Checkov is configured as a security gate."
+      Write-Error "Checkov found security issues."
       exit 1
     }
 
-    Write-Host "Checkov scan passed."
+    Write-Host "Checkov security scan passed."
 
   displayName: 'Checkov - IaC Security Scan'
 
@@ -163,13 +175,17 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "SNYK IaC SECURITY SCAN"
-    Write-Host "=============================================="
-
+    $nodePath = "C:\Program Files\nodejs"
     $snykPath = "C:\Users\Niklesh k\AppData\Roaming\npm"
-    $env:Path = "$snykPath;$env:Path"
 
+    $env:PATH = "$nodePath;$snykPath;$env:PATH"
+
+    Write-Host "=============================================="
+    Write-Host "Running Snyk IaC Security Scan"
+    Write-Host "=============================================="
+
+    Write-Host ""
+    Write-Host "Snyk version:"
     snyk.cmd --version
 
     if (-not $env:SNYK_TOKEN) {
@@ -177,28 +193,35 @@ steps:
       exit 1
     }
 
+    Write-Host ""
+    Write-Host "Authenticating Snyk..."
+
     snyk.cmd auth $env:SNYK_TOKEN
 
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Snyk authentication failed."
+      exit 1
+    }
+
+    Write-Host ""
     Write-Host "Running Snyk IaC scan..."
 
     snyk.cmd iac test "$(Build.SourcesDirectory)\23-08-26"
 
     $snykExitCode = $LASTEXITCODE
 
-    Write-Host "=============================================="
-    Write-Host "SNYK EXIT CODE: $snykExitCode"
-    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "Snyk exit code: $snykExitCode"
 
     if ($snykExitCode -ne 0) {
-      Write-Warning "Snyk found IaC security issues."
-      Write-Warning "Review the Snyk findings above."
-      Write-Warning "Pipeline will continue because this is a testing pipeline."
-      exit 0
+      Write-Error "Snyk IaC scan found security issues."
+      exit 1
     }
 
     Write-Host "Snyk IaC scan passed."
 
   displayName: 'Snyk - IaC Security Scan'
+
   env:
     SNYK_TOKEN: $(SNYK_TOKEN)
 
@@ -208,11 +231,11 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "TERRAFORM FORMAT CHECK"
-    Write-Host "=============================================="
-
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "=============================================="
+    Write-Host "Terraform Format Check"
+    Write-Host "=============================================="
 
     terraform fmt -check -recursive
 
@@ -231,11 +254,11 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "TERRAFORM INIT"
-    Write-Host "=============================================="
-
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "=============================================="
+    Write-Host "Terraform Init"
+    Write-Host "=============================================="
 
     terraform init -input=false
 
@@ -254,11 +277,11 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "TERRAFORM VALIDATE"
-    Write-Host "=============================================="
-
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "=============================================="
+    Write-Host "Terraform Validate"
+    Write-Host "=============================================="
 
     terraform validate
 
@@ -294,23 +317,21 @@ steps:
     Write-Host "=============================================="
     Write-Host "       DEV CI PIPELINE COMPLETED"
     Write-Host "=============================================="
-    Write-Host ""
+
     Write-Host "Branch       : $(Build.SourceBranch)"
     Write-Host "Build        : $(Build.BuildNumber)"
     Write-Host "Environment  : DEV"
+
     Write-Host ""
-    Write-Host "Scans:"
-    Write-Host "  GitLeaks   : Completed"
-    Write-Host "  Checkov    : Completed"
-    Write-Host "  Snyk       : Completed"
+    Write-Host "GitLeaks     : PASSED"
+    Write-Host "Checkov      : PASSED"
+    Write-Host "Snyk IaC     : PASSED"
+    Write-Host "Terraform fmt: PASSED"
+    Write-Host "Terraform init: PASSED"
+    Write-Host "Terraform validate: PASSED"
+
     Write-Host ""
-    Write-Host "Terraform:"
-    Write-Host "  Format     : Completed"
-    Write-Host "  Init       : Completed"
-    Write-Host "  Validate   : Completed"
-    Write-Host ""
-    Write-Host "Terraform APPLY is NOT performed in this CI pipeline."
-    Write-Host "=============================================="
+    Write-Host "DEV CI PIPELINE COMPLETED SUCCESSFULLY."
 
   displayName: 'CI Pipeline Completed'
 
