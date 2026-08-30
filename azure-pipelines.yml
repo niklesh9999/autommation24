@@ -18,7 +18,7 @@ variables:
 steps:
 
 # ============================================================
-# 1. CHECKOUT
+# 1. CHECKOUT SOURCE CODE
 # ============================================================
 
 - checkout: self
@@ -31,13 +31,17 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "===== Git ====="
+    Write-Host "===================================="
+    Write-Host "Checking basic tools"
+    Write-Host "===================================="
+
+    Write-Host "`nGit:"
     git --version
 
-    Write-Host "===== Terraform ====="
+    Write-Host "`nTerraform:"
     terraform version
 
-    Write-Host "===== Azure CLI ====="
+    Write-Host "`nAzure CLI:"
     az version
   displayName: 'Verify Git Terraform Azure CLI'
 
@@ -47,13 +51,17 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "Installing GitLeaks..."
+    Write-Host "===================================="
+    Write-Host "Installing GitLeaks"
+    Write-Host "===================================="
 
     $release = Invoke-RestMethod `
       -Uri "https://api.github.com/repos/gitleaks/gitleaks/releases/latest"
 
     $asset = $release.assets |
-      Where-Object { $_.name -like "*windows_x64.zip" } |
+      Where-Object {
+        $_.name -match "windows_x64\.zip$"
+      } |
       Select-Object -First 1
 
     if (-not $asset) {
@@ -68,7 +76,10 @@ steps:
       -Uri $asset.browser_download_url `
       -OutFile $zip
 
-    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+    New-Item `
+      -ItemType Directory `
+      -Force `
+      -Path $folder | Out-Null
 
     Expand-Archive `
       -Path $zip `
@@ -86,7 +97,8 @@ steps:
       exit 1
     }
 
-    Write-Host "GitLeaks installed at: $($exe.FullName)"
+    Write-Host "GitLeaks location:"
+    Write-Host $exe.FullName
 
     & $exe.FullName version
 
@@ -99,7 +111,9 @@ steps:
 # ============================================================
 
 - powershell: |
-    Write-Host "Running GitLeaks..."
+    Write-Host "===================================="
+    Write-Host "Running GitLeaks"
+    Write-Host "===================================="
 
     & "$(GITLEAKS_EXE)" detect `
       --source "$(Build.SourcesDirectory)" `
@@ -115,14 +129,53 @@ steps:
 
 
 # ============================================================
-# 5. INSTALL CHECKOV
+# 5. INSTALL PYTHON
 # ============================================================
 
 - powershell: |
-    Write-Host "Installing Checkov..."
+    Write-Host "===================================="
+    Write-Host "Installing Python"
+    Write-Host "===================================="
+
+    $pythonUrl = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+    $installer = "$(Agent.TempDirectory)\python-installer.exe"
+
+    Invoke-WebRequest `
+      -Uri $pythonUrl `
+      -OutFile $installer
+
+    Start-Process `
+      -FilePath $installer `
+      -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" `
+      -Wait
+
+    $pythonDir = "C:\Program Files\Python312"
+    $scriptsDir = "C:\Program Files\Python312\Scripts"
+
+    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
 
     python --version
+
+    python -m pip --version
+  displayName: 'Install Python'
+
+
+# ============================================================
+# 6. INSTALL CHECKOV
+# ============================================================
+
+- powershell: |
+    Write-Host "===================================="
+    Write-Host "Installing Checkov"
+    Write-Host "===================================="
+
+    $pythonDir = "C:\Program Files\Python312"
+    $scriptsDir = "C:\Program Files\Python312\Scripts"
+
+    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
+
     python -m pip install --upgrade pip
+
     python -m pip install checkov
 
     checkov --version
@@ -130,11 +183,18 @@ steps:
 
 
 # ============================================================
-# 6. CHECKOV TERRAFORM SECURITY SCAN
+# 7. CHECKOV TERRAFORM SECURITY SCAN
 # ============================================================
 
 - powershell: |
-    Write-Host "Running Checkov..."
+    Write-Host "===================================="
+    Write-Host "Running Checkov"
+    Write-Host "===================================="
+
+    $pythonDir = "C:\Program Files\Python312"
+    $scriptsDir = "C:\Program Files\Python312\Scripts"
+
+    $env:Path = "$pythonDir;$scriptsDir;$env:Path"
 
     checkov `
       -d "$(Build.SourcesDirectory)\23-08-26" `
@@ -151,14 +211,47 @@ steps:
 
 
 # ============================================================
-# 7. INSTALL SNYK
+# 8. INSTALL NODE.JS
 # ============================================================
 
 - powershell: |
-    Write-Host "Installing Snyk..."
+    Write-Host "===================================="
+    Write-Host "Installing Node.js"
+    Write-Host "===================================="
+
+    $nodeUrl = "https://nodejs.org/dist/v22.18.0/node-v22.18.0-x64.msi"
+    $installer = "$(Agent.TempDirectory)\nodejs.msi"
+
+    Invoke-WebRequest `
+      -Uri $nodeUrl `
+      -OutFile $installer
+
+    Start-Process `
+      -FilePath "msiexec.exe" `
+      -ArgumentList "/i `"$installer`" /qn /norestart" `
+      -Wait
+
+    $nodePath = "C:\Program Files\nodejs"
+
+    $env:Path = "$nodePath;$env:Path"
 
     node --version
     npm --version
+  displayName: 'Install Node.js'
+
+
+# ============================================================
+# 9. INSTALL SNYK
+# ============================================================
+
+- powershell: |
+    Write-Host "===================================="
+    Write-Host "Installing Snyk"
+    Write-Host "===================================="
+
+    $nodePath = "C:\Program Files\nodejs"
+
+    $env:Path = "$nodePath;$env:Path"
 
     npm install --global snyk
 
@@ -167,11 +260,13 @@ steps:
 
 
 # ============================================================
-# 8. SNYK IaC SCAN
+# 10. SNYK IaC SCAN
 # ============================================================
 
 - powershell: |
-    Write-Host "Running Snyk IaC scan..."
+    Write-Host "===================================="
+    Write-Host "Running Snyk IaC Scan"
+    Write-Host "===================================="
 
     if (-not $env:SNYK_TOKEN) {
       Write-Warning "SNYK_TOKEN is not configured."
@@ -193,13 +288,15 @@ steps:
 
 
 # ============================================================
-# 9. TERRAFORM FORMAT CHECK
+# 11. TERRAFORM FORMAT
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "Running Terraform fmt..."
+    Write-Host "===================================="
+    Write-Host "Terraform Format Check"
+    Write-Host "===================================="
 
     terraform fmt -check -recursive
 
@@ -211,26 +308,30 @@ steps:
 
 
 # ============================================================
-# 10. TERRAFORM INIT
+# 12. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "Running Terraform init..."
+    Write-Host "===================================="
+    Write-Host "Terraform Init"
+    Write-Host "===================================="
 
     terraform init -input=false
   displayName: 'Terraform - Init'
 
 
 # ============================================================
-# 11. TERRAFORM VALIDATE
+# 13. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    Write-Host "Running Terraform validate..."
+    Write-Host "===================================="
+    Write-Host "Terraform Validate"
+    Write-Host "===================================="
 
     terraform validate
 
@@ -242,7 +343,7 @@ steps:
 
 
 # ============================================================
-# 12. PUBLISH SECURITY REPORTS
+# 14. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -255,14 +356,15 @@ steps:
 
 
 # ============================================================
-# 13. CI COMPLETE
+# 15. CI COMPLETE
 # ============================================================
 
 - powershell: |
     Write-Host "=============================================="
     Write-Host "       DEV CI PIPELINE COMPLETED"
     Write-Host "=============================================="
-    Write-Host "Branch: $(Build.SourceBranch)"
-    Write-Host "Build : $(Build.BuildNumber)"
-    Write-Host "Environment: DEV"
+
+    Write-Host "Branch       : $(Build.SourceBranch)"
+    Write-Host "Build        : $(Build.BuildNumber)"
+    Write-Host "Environment  : DEV"
   displayName: 'CI Pipeline Completed'
