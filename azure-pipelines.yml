@@ -11,7 +11,7 @@ variables:
 steps:
 
 # ============================================================
-# 1. CHECKOUT SOURCE CODE
+# 1. CHECKOUT
 # ============================================================
 
 - checkout: self
@@ -20,95 +20,110 @@ steps:
 
 
 # ============================================================
-# 2. VERIFY ALL DEVSECOPS TOOLS
+# 2. CONFIGURE DEVSECOPS TOOL PATHS
 # ============================================================
 
 - powershell: |
+    Write-Host "=============================================="
+    Write-Host "CONFIGURING DEVSECOPS TOOL PATHS"
+    Write-Host "=============================================="
 
-    Write-Host "============================================================"
-    Write-Host "VERIFYING DEVSECOPS TOOLS"
-    Write-Host "============================================================"
-
-    $pythonScripts = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts"
+    $pythonPath = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+    $pythonScripts = "$pythonPath\Scripts"
     $nodePath = "C:\Program Files\nodejs"
-    $snykPath = "C:\Users\Niklesh k\AppData\Roaming\npm"
+    $npmPath = "C:\Users\Niklesh k\AppData\Roaming\npm"
     $gitLeaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
 
-    $env:Path = "$pythonScripts;$nodePath;$snykPath;$gitLeaksPath;$env:Path"
+    $env:Path = "$pythonPath;$pythonScripts;$nodePath;$npmPath;$gitLeaksPath;$env:Path"
 
-    Write-Host ""
-    Write-Host "Git:"
-    git --version
+    Write-Host "PATH configured."
 
-    Write-Host ""
-    Write-Host "Terraform:"
+    Write-Host "`nPython:"
+    & "$pythonPath\python.exe" --version
+
+    Write-Host "`nCheckov:"
+    & "$pythonScripts\checkov.exe" --version
+
+    Write-Host "`nGitLeaks:"
+    & "$gitLeaksPath\gitleaks.exe" version
+
+    Write-Host "`nNode:"
+    & "$nodePath\node.exe" --version
+
+    Write-Host "`nSnyk:"
+    & "$npmPath\snyk.cmd" --version
+
+    Write-Host "`nTerraform:"
     terraform version
 
-    Write-Host ""
-    Write-Host "Azure CLI:"
+    Write-Host "`nAzure CLI:"
     az version
 
-    Write-Host ""
-    Write-Host "Python:"
-    python --version
-
-    Write-Host ""
-    Write-Host "Checkov:"
-    checkov --version
-
-    Write-Host ""
-    Write-Host "Node:"
-    node --version
-
-    Write-Host ""
-    Write-Host "NPM:"
-    npm --version
-
-    Write-Host ""
-    Write-Host "Snyk:"
-    snyk.cmd --version
-
-    Write-Host ""
-    Write-Host "GitLeaks:"
-    gitleaks.exe version
-
-  displayName: 'Verify All DevSecOps Tools'
+  displayName: 'Configure DevSecOps Tool Paths'
 
 
 # ============================================================
-# 3. GITLEAKS SECRET SCAN
+# 3. VERIFY BASIC TOOLS
 # ============================================================
 
 - powershell: |
+    Write-Host "=============================================="
+    Write-Host "VERIFYING BASIC TOOLS"
+    Write-Host "=============================================="
 
-    Write-Host "============================================================"
-    Write-Host "[1/9] GITLEAKS - SECRET SCAN"
-    Write-Host "============================================================"
+    git --version
+    terraform version
+    az version
 
-    $gitLeaks = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\gitleaks.exe"
+  displayName: 'Verify Git Terraform Azure CLI'
 
-    if (-not (Test-Path $gitLeaks)) {
-        Write-Error "GitLeaks not found."
-        exit 1
+
+# ============================================================
+# 4. GITLEAKS VERIFY
+# ============================================================
+
+- powershell: |
+    $gitLeaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
+
+    Write-Host "=============================================="
+    Write-Host "VERIFY GITLEAKS"
+    Write-Host "=============================================="
+
+    & "$gitLeaksPath\gitleaks.exe" version
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "GitLeaks is not working."
+      exit 1
     }
 
-    New-Item -ItemType Directory `
+  displayName: 'Verify GitLeaks'
+
+
+# ============================================================
+# 5. GITLEAKS SCAN
+# ============================================================
+
+- powershell: |
+    $gitLeaksPath = "C:\Users\Niklesh k\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe"
+
+    Write-Host "=============================================="
+    Write-Host "[1/9] GITLEAKS - SECRET SCAN"
+    Write-Host "=============================================="
+
+    New-Item `
+      -ItemType Directory `
       -Force `
       -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
 
-    & $gitLeaks detect `
+    & "$gitLeaksPath\gitleaks.exe" detect `
       --source "$(Build.SourcesDirectory)" `
       --report-format sarif `
       --report-path "$(Build.ArtifactStagingDirectory)\gitleaks.sarif" `
       --no-banner
 
-    $exitCode = $LASTEXITCODE
-
-    Write-Host "GitLeaks Exit Code: $exitCode"
-
-    if ($exitCode -ne 0) {
-        Write-Error "GitLeaks detected secrets."
-        exit 1
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "GitLeaks detected secrets."
+      exit 1
     }
 
     Write-Host "GitLeaks scan PASSED."
@@ -117,32 +132,23 @@ steps:
 
 
 # ============================================================
-# 4. CHECKOV - RESOURCE GROUP
+# 6. CHECKOV - RESOURCE GROUP
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[2/9] CHECKOV - RESOURCE GROUP"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\rg"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "Resource Group module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -151,8 +157,8 @@ steps:
     Write-Host "Resource Group Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "Resource Group Checkov scan FAILED."
-        exit 1
+      Write-Error "Resource Group Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "RESOURCE GROUP SCAN PASSED."
@@ -161,32 +167,23 @@ steps:
 
 
 # ============================================================
-# 5. CHECKOV - VNET
+# 7. CHECKOV - VNET
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[3/9] CHECKOV - VNET"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\vnet"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "VNET module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -195,8 +192,8 @@ steps:
     Write-Host "VNET Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "VNET Checkov scan FAILED."
-        exit 1
+      Write-Error "VNET Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "VNET SCAN PASSED."
@@ -205,32 +202,23 @@ steps:
 
 
 # ============================================================
-# 6. CHECKOV - SUBNET
+# 8. CHECKOV - SUBNET
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[4/9] CHECKOV - SUBNET"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\subnet"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "Subnet module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -239,8 +227,8 @@ steps:
     Write-Host "Subnet Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "Subnet Checkov scan FAILED."
-        exit 1
+      Write-Error "Subnet Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "SUBNET SCAN PASSED."
@@ -249,33 +237,28 @@ steps:
 
 
 # ============================================================
-# 7. CHECKOV - PUBLIC IP
+# 9. CHECKOV - PUBLIC IP
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[5/9] CHECKOV - PUBLIC IP"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\pip"
 
-    Write-Host "Checkov:"
-    & $checkov --version
+    if (-not (Test-Path $path)) {
+      Write-Error "Public IP module does not exist: $path"
+      exit 1
+    }
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "Public IP module not found: $path"
-        Write-Error "Check whether your folder is named 'pip'."
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -284,8 +267,8 @@ steps:
     Write-Host "Public IP Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "Public IP Checkov scan FAILED."
-        exit 1
+      Write-Error "Public IP Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "PUBLIC IP SCAN PASSED."
@@ -294,32 +277,23 @@ steps:
 
 
 # ============================================================
-# 8. CHECKOV - NIC
+# 10. CHECKOV - NIC
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[6/9] CHECKOV - NIC"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\nic"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "NIC module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -328,8 +302,8 @@ steps:
     Write-Host "NIC Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "NIC Checkov scan FAILED."
-        exit 1
+      Write-Error "NIC Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "NIC SCAN PASSED."
@@ -338,32 +312,23 @@ steps:
 
 
 # ============================================================
-# 9. CHECKOV - NSG
+# 11. CHECKOV - NSG
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[7/9] CHECKOV - NSG"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\nsg"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "NSG module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -372,8 +337,8 @@ steps:
     Write-Host "NSG Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "NSG Checkov scan FAILED."
-        exit 1
+      Write-Error "NSG Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "NSG SCAN PASSED."
@@ -382,32 +347,23 @@ steps:
 
 
 # ============================================================
-# 10. CHECKOV - VM
+# 12. CHECKOV - VM
 # ============================================================
 
 - powershell: |
+    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.exe"
 
     Write-Host "============================================================"
     Write-Host "[8/9] CHECKOV - VM"
     Write-Host "============================================================"
 
-    $checkov = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312\Scripts\checkov.cmd"
-
     $path = "$(Build.SourcesDirectory)\23-08-26\module\vm"
-
-    Write-Host "Checkov:"
-    & $checkov --version
 
     Write-Host "Scanning:"
     Write-Host $path
 
-    if (-not (Test-Path $path)) {
-        Write-Error "VM module not found: $path"
-        exit 1
-    }
-
     & $checkov `
-      -d "$path" `
+      -d $path `
       --framework terraform `
       --output cli
 
@@ -416,8 +372,8 @@ steps:
     Write-Host "VM Checkov Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Error "VM Checkov scan FAILED."
-        exit 1
+      Write-Error "VM Checkov scan FAILED."
+      exit 1
     }
 
     Write-Host "VM SCAN PASSED."
@@ -426,37 +382,44 @@ steps:
 
 
 # ============================================================
-# 11. SNYK IaC SCAN
+# 13. SNYK IaC
 # ============================================================
 
 - powershell: |
+    $snyk = "C:\Users\Niklesh k\AppData\Roaming\npm\snyk.cmd"
 
     Write-Host "============================================================"
     Write-Host "[9/9] SNYK - IaC SECURITY SCAN"
     Write-Host "============================================================"
 
-    $path = "$(Build.SourcesDirectory)\23-08-26"
+    Write-Host "Snyk version:"
+    & $snyk --version
 
-    Write-Host "Scanning:"
-    Write-Host $path
-
-    if (-not (Test-Path $path)) {
-        Write-Error "Terraform source path not found: $path"
-        exit 1
+    if (-not $env:SNYK_TOKEN) {
+      Write-Error "SNYK_TOKEN is not configured."
+      exit 1
     }
 
-    snyk.cmd auth $env:SNYK_TOKEN
+    Write-Host "Authenticating Snyk..."
 
-    snyk.cmd iac test "$path"
+    & $snyk auth $env:SNYK_TOKEN
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Snyk authentication failed."
+      exit 1
+    }
+
+    Write-Host "Running Snyk IaC scan..."
+
+    & $snyk iac test "$(Build.SourcesDirectory)\23-08-26"
 
     $exitCode = $LASTEXITCODE
 
     Write-Host "Snyk Exit Code: $exitCode"
 
     if ($exitCode -ne 0) {
-        Write-Warning "Snyk found security issues."
-        Write-Warning "Testing mode: Pipeline will continue."
-        exit 0
+      Write-Error "Snyk IaC scan found security issues."
+      exit 1
     }
 
     Write-Host "Snyk IaC scan PASSED."
@@ -467,22 +430,21 @@ steps:
 
 
 # ============================================================
-# 12. TERRAFORM FORMAT
+# 14. TERRAFORM FORMAT
 # ============================================================
 
 - powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
     Write-Host "============================================================"
     Write-Host "TERRAFORM FORMAT CHECK"
     Write-Host "============================================================"
 
-    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-
     terraform fmt -check -recursive
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Terraform format check FAILED."
-        exit 1
+      Write-Error "Terraform format check FAILED."
+      exit 1
     }
 
     Write-Host "Terraform format check PASSED."
@@ -491,46 +453,44 @@ steps:
 
 
 # ============================================================
-# 13. TERRAFORM INIT
+# 15. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
-
-    Write-Host "============================================================"
-    Write-Host "TERRAFORM INIT - DEV"
-    Write-Host "============================================================"
-
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "============================================================"
+    Write-Host "TERRAFORM INIT"
+    Write-Host "============================================================"
 
     terraform init -input=false
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Terraform init FAILED."
-        exit 1
+      Write-Error "Terraform init FAILED."
+      exit 1
     }
 
-    Write-Host "Terraform init completed."
+    Write-Host "Terraform init PASSED."
 
   displayName: 'Terraform - Init'
 
 
 # ============================================================
-# 14. TERRAFORM VALIDATE
+# 16. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
-
-    Write-Host "============================================================"
-    Write-Host "TERRAFORM VALIDATE - DEV"
-    Write-Host "============================================================"
-
     Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "============================================================"
+    Write-Host "TERRAFORM VALIDATE"
+    Write-Host "============================================================"
 
     terraform validate
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Terraform validation FAILED."
-        exit 1
+      Write-Error "Terraform validation FAILED."
+      exit 1
     }
 
     Write-Host "Terraform validation PASSED."
@@ -539,7 +499,7 @@ steps:
 
 
 # ============================================================
-# 15. PUBLISH SECURITY REPORTS
+# 17. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -552,27 +512,16 @@ steps:
 
 
 # ============================================================
-# 16. CI COMPLETE
+# 18. CI COMPLETE
 # ============================================================
 
 - powershell: |
-
     Write-Host "============================================================"
-    Write-Host "           DEV CI PIPELINE COMPLETED"
+    Write-Host "              DEV CI PIPELINE COMPLETED"
     Write-Host "============================================================"
 
-    Write-Host "Branch       : $(Build.SourceBranch)"
-    Write-Host "Build        : $(Build.BuildNumber)"
-    Write-Host "Environment  : DEV"
-
-    Write-Host ""
-    Write-Host "GitLeaks     : COMPLETED"
-    Write-Host "Checkov      : COMPLETED"
-    Write-Host "Snyk IaC     : COMPLETED"
-    Write-Host "Terraform    : VALIDATED"
-
-    Write-Host ""
-    Write-Host "No Terraform Apply was performed."
-    Write-Host "PROD was NOT touched."
+    Write-Host "Branch      : $(Build.SourceBranch)"
+    Write-Host "Build       : $(Build.BuildNumber)"
+    Write-Host "Environment : DEV"
 
   displayName: 'CI Pipeline Completed'
