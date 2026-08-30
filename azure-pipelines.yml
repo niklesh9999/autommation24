@@ -9,7 +9,7 @@ pr:
       - main
 
 pool:
-  name: Terraform-pool-agent
+  name: Terraform-Agent-pool
 
 variables:
   TF_IN_AUTOMATION: 'true'
