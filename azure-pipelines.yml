@@ -11,7 +11,7 @@ variables:
 steps:
 
 # ============================================================
-# 1. CHECKOUT SOURCE CODE
+# 1. CHECKOUT
 # ============================================================
 
 - checkout: self
@@ -28,75 +28,23 @@ steps:
     Write-Host "Checking basic tools"
     Write-Host "===================================="
 
-    Write-Host "`nGit:"
     git --version
-
-    Write-Host "`nTerraform:"
     terraform version
-
-    Write-Host "`nAzure CLI:"
     az version
   displayName: 'Verify Git Terraform Azure CLI'
 
 
 # ============================================================
-# 3. INSTALL GITLEAKS
+# 3. VERIFY GITLEAKS
 # ============================================================
 
 - powershell: |
     Write-Host "===================================="
-    Write-Host "Installing GitLeaks"
+    Write-Host "Checking GitLeaks"
     Write-Host "===================================="
 
-    $release = Invoke-RestMethod `
-      -Uri "https://api.github.com/repos/gitleaks/gitleaks/releases/latest"
-
-    $asset = $release.assets |
-      Where-Object {
-        $_.name -match "windows_x64\.zip$"
-      } |
-      Select-Object -First 1
-
-    if (-not $asset) {
-      Write-Error "GitLeaks Windows x64 package not found."
-      exit 1
-    }
-
-    $zip = "$(Agent.TempDirectory)\gitleaks.zip"
-    $folder = "$(Agent.TempDirectory)\gitleaks"
-
-    Invoke-WebRequest `
-      -Uri $asset.browser_download_url `
-      -OutFile $zip
-
-    New-Item `
-      -ItemType Directory `
-      -Force `
-      -Path $folder | Out-Null
-
-    Expand-Archive `
-      -Path $zip `
-      -DestinationPath $folder `
-      -Force
-
-    $exe = Get-ChildItem `
-      -Path $folder `
-      -Filter "gitleaks.exe" `
-      -Recurse |
-      Select-Object -First 1
-
-    if (-not $exe) {
-      Write-Error "gitleaks.exe was not found."
-      exit 1
-    }
-
-    Write-Host "GitLeaks location:"
-    Write-Host $exe.FullName
-
-    & $exe.FullName version
-
-    Write-Host "##vso[task.setvariable variable=GITLEAKS_EXE]$($exe.FullName)"
-  displayName: 'Install GitLeaks'
+    gitleaks version
+  displayName: 'Verify GitLeaks'
 
 
 # ============================================================
@@ -105,10 +53,13 @@ steps:
 
 - powershell: |
     Write-Host "===================================="
-    Write-Host "Running GitLeaks"
+    Write-Host "Running GitLeaks Secret Scan"
     Write-Host "===================================="
 
-    & "$(GITLEAKS_EXE)" detect `
+    New-Item -ItemType Directory -Force `
+      -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
+
+    gitleaks detect `
       --source "$(Build.SourcesDirectory)" `
       --report-format sarif `
       --report-path "$(Build.ArtifactStagingDirectory)\gitleaks.sarif" `
@@ -118,46 +69,48 @@ steps:
       Write-Error "GitLeaks detected secrets."
       exit 1
     }
+
+    Write-Host "GitLeaks scan passed."
   displayName: 'GitLeaks - Secret Scan'
 
 
 # ============================================================
-# 5. CHECK PYTHON
+# 5. PYTHON + CHECKOV
 # ============================================================
 
 - powershell: |
     Write-Host "===================================="
-    Write-Host "Checking Python"
+    Write-Host "Checking Python and Checkov"
     Write-Host "===================================="
+
+    $pythonPath = "$env:LOCALAPPDATA\Programs\Python\Python312"
+    $scriptsPath = "$pythonPath\Scripts"
+
+    $env:Path = "$pythonPath;$scriptsPath;$env:Path"
 
     python --version
     python -m pip --version
-  displayName: 'Verify Python'
-
-
-# ============================================================
-# 6. INSTALL CHECKOV
-# ============================================================
-
-- powershell: |
-    Write-Host "===================================="
-    Write-Host "Installing Checkov"
-    Write-Host "===================================="
-
-    python -m pip install checkov
 
     checkov --version
-  displayName: 'Install Checkov'
+  displayName: 'Verify Python and Checkov'
 
 
 # ============================================================
-# 7. CHECKOV TERRAFORM SECURITY SCAN
+# 6. CHECKOV IaC SCAN
 # ============================================================
 
 - powershell: |
     Write-Host "===================================="
     Write-Host "Running Checkov"
     Write-Host "===================================="
+
+    $pythonPath = "$env:LOCALAPPDATA\Programs\Python\Python312"
+    $scriptsPath = "$pythonPath\Scripts"
+
+    $env:Path = "$pythonPath;$scriptsPath;$env:Path"
+
+    New-Item -ItemType Directory -Force `
+      -Path "$(Build.ArtifactStagingDirectory)" | Out-Null
 
     checkov `
       -d "$(Build.SourcesDirectory)\23-08-26" `
@@ -170,11 +123,61 @@ steps:
       Write-Error "Checkov security scan failed."
       exit 1
     }
+
+    Write-Host "Checkov scan passed."
   displayName: 'Checkov - IaC Security Scan'
 
 
 # ============================================================
-# 8. TERRAFORM FORMAT CHECK
+# 7. VERIFY NODE.JS + SNYK
+# ============================================================
+
+- powershell: |
+    Write-Host "===================================="
+    Write-Host "Checking Node.js and Snyk"
+    Write-Host "===================================="
+
+    $nodePath = "C:\Program Files\nodejs"
+    $env:Path = "$nodePath;$env:Path"
+
+    node --version
+    npm.cmd --version
+    snyk.cmd --version
+  displayName: 'Verify Node.js and Snyk'
+
+
+# ============================================================
+# 8. SNYK IaC SCAN
+# ============================================================
+
+- powershell: |
+    Write-Host "===================================="
+    Write-Host "Running Snyk IaC Scan"
+    Write-Host "===================================="
+
+    $nodePath = "C:\Program Files\nodejs"
+    $env:Path = "$nodePath;$env:Path"
+
+    if (-not $env:SNYK_TOKEN) {
+      Write-Error "SNYK_TOKEN is not configured."
+      exit 1
+    }
+
+    snyk.cmd iac test "$(Build.SourcesDirectory)\23-08-26"
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Snyk IaC scan failed."
+      exit 1
+    }
+
+    Write-Host "Snyk IaC scan passed."
+  displayName: 'Snyk - IaC Security Scan'
+  env:
+    SNYK_TOKEN: $(SNYK_TOKEN)
+
+
+# ============================================================
+# 9. TERRAFORM FORMAT
 # ============================================================
 
 - powershell: |
@@ -190,11 +193,13 @@ steps:
       Write-Error "Terraform format check failed."
       exit 1
     }
+
+    Write-Host "Terraform format check passed."
   displayName: 'Terraform - Format Check'
 
 
 # ============================================================
-# 9. TERRAFORM INIT
+# 10. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
@@ -205,11 +210,18 @@ steps:
     Write-Host "===================================="
 
     terraform init -input=false
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Terraform init failed."
+      exit 1
+    }
+
+    Write-Host "Terraform init completed."
   displayName: 'Terraform - Init'
 
 
 # ============================================================
-# 10. TERRAFORM VALIDATE
+# 11. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
@@ -225,11 +237,13 @@ steps:
       Write-Error "Terraform validation failed."
       exit 1
     }
+
+    Write-Host "Terraform validation passed."
   displayName: 'Terraform - Validate'
 
 
 # ============================================================
-# 11. PUBLISH SECURITY REPORTS
+# 12. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -242,7 +256,7 @@ steps:
 
 
 # ============================================================
-# 12. CI COMPLETE
+# 13. CI COMPLETE
 # ============================================================
 
 - powershell: |
@@ -250,7 +264,7 @@ steps:
     Write-Host "       DEV CI PIPELINE COMPLETED"
     Write-Host "=============================================="
 
-    Write-Host "Branch      : $(Build.SourceBranch)"
-    Write-Host "Build       : $(Build.BuildNumber)"
-    Write-Host "Environment : DEV"
+    Write-Host "Branch       : $(Build.SourceBranch)"
+    Write-Host "Build        : $(Build.BuildNumber)"
+    Write-Host "Environment  : DEV"
   displayName: 'CI Pipeline Completed'
