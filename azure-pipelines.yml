@@ -1,0 +1,201 @@
+trigger:
+  branches:
+    include:
+      - features
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  name: Terraform-pool-agent
+
+variables:
+  TF_IN_AUTOMATION: 'true'
+  TF_WORKING_DIR: '23-08-26/env/dev'
+
+steps:
+
+# ============================================================
+# 1. CHECKOUT SOURCE CODE
+# ============================================================
+
+- checkout: self
+  clean: true
+  displayName: 'Checkout source code'
+
+
+# ============================================================
+# 2. VERIFY TOOLS ON SELF-HOSTED AGENT
+# ============================================================
+
+- powershell: |
+    Write-Host "Checking Git..."
+    git --version
+
+    Write-Host "Checking Terraform..."
+    terraform version
+
+    Write-Host "Checking Azure CLI..."
+    az version
+
+    Write-Host "Checking GitLeaks..."
+    gitleaks version
+
+    Write-Host "Checking Checkov..."
+    checkov --version
+
+    Write-Host "Checking Snyk..."
+    snyk --version
+
+    Write-Host "Checking SonarScanner..."
+    sonar-scanner --version
+  displayName: 'Verify required DevSecOps tools'
+
+
+# ============================================================
+# 3. GITLEAKS - SECRET SCANNING
+# ============================================================
+
+- powershell: |
+    Write-Host "Running GitLeaks..."
+
+    gitleaks detect `
+      --source "$(Build.SourcesDirectory)" `
+      --report-format sarif `
+      --report-path "$(Build.ArtifactStagingDirectory)\gitleaks.sarif" `
+      --no-banner
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "GitLeaks detected secrets."
+      exit 1
+    }
+  displayName: 'GitLeaks - Secret Scan'
+
+
+# ============================================================
+# 4. TERRAFORM FORMAT CHECK
+# ============================================================
+
+- powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "Running Terraform Format Check..."
+
+    terraform fmt -check -recursive
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Terraform formatting check failed."
+      exit 1
+    }
+  displayName: 'Terraform - Format Check'
+
+
+# ============================================================
+# 5. TERRAFORM INIT
+# ============================================================
+
+- powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "Running Terraform Init..."
+
+    terraform init -input=false
+  displayName: 'Terraform - Init'
+
+
+# ============================================================
+# 6. TERRAFORM VALIDATE
+# ============================================================
+
+- powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "Running Terraform Validate..."
+
+    terraform validate
+  displayName: 'Terraform - Validate'
+
+
+# ============================================================
+# 7. CHECKOV - TERRAFORM SECURITY SCAN
+# ============================================================
+
+- powershell: |
+    Write-Host "Running Checkov..."
+
+    checkov `
+      -d "$(Build.SourcesDirectory)\23-08-26" `
+      --framework terraform `
+      --output cli `
+      --output sarif `
+      --output-file-path "$(Build.ArtifactStagingDirectory)\checkov.sarif"
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Checkov security scan failed."
+      exit 1
+    }
+  displayName: 'Checkov - IaC Security Scan'
+
+
+# ============================================================
+# 8. SNYK - IaC / DEPENDENCY SECURITY SCAN
+# ============================================================
+
+- powershell: |
+    Write-Host "Running Snyk IaC Scan..."
+
+    snyk iac test "$(Build.SourcesDirectory)\23-08-26"
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Snyk IaC scan failed."
+      exit 1
+    }
+  displayName: 'Snyk - IaC Security Scan'
+
+
+# ============================================================
+# 9. SONAR SCANNER
+# ============================================================
+
+- powershell: |
+    Write-Host "Running SonarScanner..."
+
+    sonar-scanner `
+      "-Dsonar.projectKey=terraform-dev" `
+      "-Dsonar.projectName=terraform-dev" `
+      "-Dsonar.sources=$(Build.SourcesDirectory)\23-08-26"
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "SonarScanner failed."
+      exit 1
+    }
+  displayName: 'SonarQube - Static Analysis'
+
+
+# ============================================================
+# 10. PUBLISH SECURITY SCAN ARTIFACTS
+# ============================================================
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Security Scan Reports'
+  condition: always()
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'SecurityScanReports'
+    publishLocation: 'Container'
+
+
+# ============================================================
+# 11. CI SUCCESS MESSAGE
+# ============================================================
+
+- powershell: |
+    Write-Host "=============================================="
+    Write-Host "        CI PIPELINE COMPLETED SUCCESSFULLY"
+    Write-Host "=============================================="
+    Write-Host "Branch : $(Build.SourceBranch)"
+    Write-Host "Build  : $(Build.BuildNumber)"
+    Write-Host "Environment : DEV"
+  displayName: 'CI Pipeline Completed'
