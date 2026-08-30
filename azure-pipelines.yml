@@ -9,7 +9,7 @@ pr:
       - main
 
 pool:
-  name: Terraform-Agent-pool
+  name: Terraform-Agent-Pool
 
 variables:
   TF_IN_AUTOMATION: 'true'
@@ -18,7 +18,7 @@ variables:
 steps:
 
 # ============================================================
-# 1. CHECKOUT SOURCE CODE
+# 1. CHECKOUT
 # ============================================================
 
 - checkout: self
@@ -27,35 +27,39 @@ steps:
 
 
 # ============================================================
-# 2. VERIFY TOOLS ON SELF-HOSTED AGENT
+# 2. VERIFY TOOLS
 # ============================================================
 
 - powershell: |
-    Write-Host "Checking Git..."
+    Write-Host "===================================="
+    Write-Host "Checking installed tools"
+    Write-Host "===================================="
+
+    Write-Host "`nGit:"
     git --version
 
-    Write-Host "Checking Terraform..."
+    Write-Host "`nTerraform:"
     terraform version
 
-    Write-Host "Checking Azure CLI..."
+    Write-Host "`nAzure CLI:"
     az version
 
-    Write-Host "Checking GitLeaks..."
+    Write-Host "`nGitLeaks:"
     gitleaks version
 
-    Write-Host "Checking Checkov..."
+    Write-Host "`nCheckov:"
     checkov --version
 
-    Write-Host "Checking Snyk..."
+    Write-Host "`nSnyk:"
     snyk --version
 
-    Write-Host "Checking SonarScanner..."
+    Write-Host "`nSonarScanner:"
     sonar-scanner --version
   displayName: 'Verify required DevSecOps tools'
 
 
 # ============================================================
-# 3. GITLEAKS - SECRET SCANNING
+# 3. GITLEAKS - SECRET SCAN
 # ============================================================
 
 - powershell: |
@@ -75,7 +79,7 @@ steps:
 
 
 # ============================================================
-# 4. TERRAFORM FORMAT CHECK
+# 4. TERRAFORM FORMAT
 # ============================================================
 
 - powershell: |
@@ -86,7 +90,7 @@ steps:
     terraform fmt -check -recursive
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform formatting check failed."
+      Write-Error "Terraform format check failed."
       exit 1
     }
   displayName: 'Terraform - Format Check'
@@ -119,7 +123,7 @@ steps:
 
 
 # ============================================================
-# 7. CHECKOV - TERRAFORM SECURITY SCAN
+# 7. CHECKOV - IaC SECURITY SCAN
 # ============================================================
 
 - powershell: |
@@ -140,7 +144,7 @@ steps:
 
 
 # ============================================================
-# 8. SNYK - IaC / DEPENDENCY SECURITY SCAN
+# 8. SNYK - IaC SECURITY SCAN
 # ============================================================
 
 - powershell: |
@@ -156,7 +160,7 @@ steps:
 
 
 # ============================================================
-# 9. SONAR SCANNER
+# 9. SONARSCANNER
 # ============================================================
 
 - powershell: |
@@ -175,7 +179,7 @@ steps:
 
 
 # ============================================================
-# 10. PUBLISH SECURITY SCAN ARTIFACTS
+# 10. PUBLISH SCAN REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -188,14 +192,15 @@ steps:
 
 
 # ============================================================
-# 11. CI SUCCESS MESSAGE
+# 11. CI COMPLETED
 # ============================================================
 
 - powershell: |
-    Write-Host "=============================================="
-    Write-Host "        CI PIPELINE COMPLETED SUCCESSFULLY"
-    Write-Host "=============================================="
-    Write-Host "Branch : $(Build.SourceBranch)"
-    Write-Host "Build  : $(Build.BuildNumber)"
-    Write-Host "Environment : DEV"
+    Write-Host "=========================================="
+    Write-Host "       DEV CI PIPELINE COMPLETED"
+    Write-Host "=========================================="
+
+    Write-Host "Branch       : $(Build.SourceBranch)"
+    Write-Host "Build Number : $(Build.BuildNumber)"
+    Write-Host "Environment  : DEV"
   displayName: 'CI Pipeline Completed'
