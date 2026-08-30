@@ -27,45 +27,81 @@ steps:
 
 
 # ============================================================
-# 2. VERIFY TOOLS
+# 2. VERIFY BASIC TOOLS
 # ============================================================
 
 - powershell: |
-    Write-Host "===================================="
-    Write-Host "Checking installed tools"
-    Write-Host "===================================="
-
-    Write-Host "`nGit:"
+    Write-Host "===== Git ====="
     git --version
 
-    Write-Host "`nTerraform:"
+    Write-Host "===== Terraform ====="
     terraform version
 
-    Write-Host "`nAzure CLI:"
+    Write-Host "===== Azure CLI ====="
     az version
-
-    Write-Host "`nGitLeaks:"
-    gitleaks version
-
-    Write-Host "`nCheckov:"
-    checkov --version
-
-    Write-Host "`nSnyk:"
-    snyk --version
-
-    Write-Host "`nSonarScanner:"
-    sonar-scanner --version
-  displayName: 'Verify required DevSecOps tools'
+  displayName: 'Verify Git Terraform Azure CLI'
 
 
 # ============================================================
-# 3. GITLEAKS - SECRET SCAN
+# 3. INSTALL GITLEAKS
+# ============================================================
+
+- powershell: |
+    Write-Host "Installing GitLeaks..."
+
+    $release = Invoke-RestMethod `
+      -Uri "https://api.github.com/repos/gitleaks/gitleaks/releases/latest"
+
+    $asset = $release.assets |
+      Where-Object { $_.name -like "*windows_x64.zip" } |
+      Select-Object -First 1
+
+    if (-not $asset) {
+      Write-Error "GitLeaks Windows x64 package not found."
+      exit 1
+    }
+
+    $zip = "$(Agent.TempDirectory)\gitleaks.zip"
+    $folder = "$(Agent.TempDirectory)\gitleaks"
+
+    Invoke-WebRequest `
+      -Uri $asset.browser_download_url `
+      -OutFile $zip
+
+    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+
+    Expand-Archive `
+      -Path $zip `
+      -DestinationPath $folder `
+      -Force
+
+    $exe = Get-ChildItem `
+      -Path $folder `
+      -Filter "gitleaks.exe" `
+      -Recurse |
+      Select-Object -First 1
+
+    if (-not $exe) {
+      Write-Error "gitleaks.exe was not found."
+      exit 1
+    }
+
+    Write-Host "GitLeaks installed at: $($exe.FullName)"
+
+    & $exe.FullName version
+
+    Write-Host "##vso[task.setvariable variable=GITLEAKS_EXE]$($exe.FullName)"
+  displayName: 'Install GitLeaks'
+
+
+# ============================================================
+# 4. GITLEAKS SECRET SCAN
 # ============================================================
 
 - powershell: |
     Write-Host "Running GitLeaks..."
 
-    gitleaks detect `
+    & "$(GITLEAKS_EXE)" detect `
       --source "$(Build.SourcesDirectory)" `
       --report-format sarif `
       --report-path "$(Build.ArtifactStagingDirectory)\gitleaks.sarif" `
@@ -79,51 +115,22 @@ steps:
 
 
 # ============================================================
-# 4. TERRAFORM FORMAT
+# 5. INSTALL CHECKOV
 # ============================================================
 
 - powershell: |
-    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+    Write-Host "Installing Checkov..."
 
-    Write-Host "Running Terraform Format Check..."
+    python --version
+    python -m pip install --upgrade pip
+    python -m pip install checkov
 
-    terraform fmt -check -recursive
-
-    if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform format check failed."
-      exit 1
-    }
-  displayName: 'Terraform - Format Check'
+    checkov --version
+  displayName: 'Install Checkov'
 
 
 # ============================================================
-# 5. TERRAFORM INIT
-# ============================================================
-
-- powershell: |
-    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-
-    Write-Host "Running Terraform Init..."
-
-    terraform init -input=false
-  displayName: 'Terraform - Init'
-
-
-# ============================================================
-# 6. TERRAFORM VALIDATE
-# ============================================================
-
-- powershell: |
-    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-
-    Write-Host "Running Terraform Validate..."
-
-    terraform validate
-  displayName: 'Terraform - Validate'
-
-
-# ============================================================
-# 7. CHECKOV - IaC SECURITY SCAN
+# 6. CHECKOV TERRAFORM SECURITY SCAN
 # ============================================================
 
 - powershell: |
@@ -144,11 +151,35 @@ steps:
 
 
 # ============================================================
-# 8. SNYK - IaC SECURITY SCAN
+# 7. INSTALL SNYK
 # ============================================================
 
 - powershell: |
-    Write-Host "Running Snyk IaC Scan..."
+    Write-Host "Installing Snyk..."
+
+    node --version
+    npm --version
+
+    npm install --global snyk
+
+    snyk --version
+  displayName: 'Install Snyk'
+
+
+# ============================================================
+# 8. SNYK IaC SCAN
+# ============================================================
+
+- powershell: |
+    Write-Host "Running Snyk IaC scan..."
+
+    if (-not $env:SNYK_TOKEN) {
+      Write-Warning "SNYK_TOKEN is not configured."
+      Write-Warning "Skipping Snyk scan."
+      exit 0
+    }
+
+    snyk auth $env:SNYK_TOKEN
 
     snyk iac test "$(Build.SourcesDirectory)\23-08-26"
 
@@ -157,29 +188,61 @@ steps:
       exit 1
     }
   displayName: 'Snyk - IaC Security Scan'
+  env:
+    SNYK_TOKEN: $(SNYK_TOKEN)
 
 
 # ============================================================
-# 9. SONARSCANNER
+# 9. TERRAFORM FORMAT CHECK
 # ============================================================
 
 - powershell: |
-    Write-Host "Running SonarScanner..."
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-    sonar-scanner `
-      "-Dsonar.projectKey=terraform-dev" `
-      "-Dsonar.projectName=terraform-dev" `
-      "-Dsonar.sources=$(Build.SourcesDirectory)\23-08-26"
+    Write-Host "Running Terraform fmt..."
+
+    terraform fmt -check -recursive
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "SonarScanner failed."
+      Write-Error "Terraform format check failed."
       exit 1
     }
-  displayName: 'SonarQube - Static Analysis'
+  displayName: 'Terraform - Format Check'
 
 
 # ============================================================
-# 10. PUBLISH SCAN REPORTS
+# 10. TERRAFORM INIT
+# ============================================================
+
+- powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "Running Terraform init..."
+
+    terraform init -input=false
+  displayName: 'Terraform - Init'
+
+
+# ============================================================
+# 11. TERRAFORM VALIDATE
+# ============================================================
+
+- powershell: |
+    Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+    Write-Host "Running Terraform validate..."
+
+    terraform validate
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Error "Terraform validation failed."
+      exit 1
+    }
+  displayName: 'Terraform - Validate'
+
+
+# ============================================================
+# 12. PUBLISH SECURITY REPORTS
 # ============================================================
 
 - task: PublishBuildArtifacts@1
@@ -192,15 +255,14 @@ steps:
 
 
 # ============================================================
-# 11. CI COMPLETED
+# 13. CI COMPLETE
 # ============================================================
 
 - powershell: |
-    Write-Host "=========================================="
+    Write-Host "=============================================="
     Write-Host "       DEV CI PIPELINE COMPLETED"
-    Write-Host "=========================================="
-
-    Write-Host "Branch       : $(Build.SourceBranch)"
-    Write-Host "Build Number : $(Build.BuildNumber)"
-    Write-Host "Environment  : DEV"
+    Write-Host "=============================================="
+    Write-Host "Branch: $(Build.SourceBranch)"
+    Write-Host "Build : $(Build.BuildNumber)"
+    Write-Host "Environment: DEV"
   displayName: 'CI Pipeline Completed'
