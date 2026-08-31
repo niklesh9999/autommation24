@@ -1,0 +1,441 @@
+
+trigger:
+- main
+
+pool:
+  name: Terraform-Agent-Pool
+
+variables:
+  TF_IN_AUTOMATION: 'true'
+  TF_WORKING_DIR: '23-08-26/env/dev'
+
+stages:
+
+# ============================================================
+# STAGE 1 - TERRAFORM PLAN
+# ============================================================
+
+- stage: Terraform_Plan
+  displayName: 'Terraform Plan - DEV'
+
+  jobs:
+
+  - job: Plan
+    displayName: 'Terraform Plan'
+
+    steps:
+
+    # ========================================================
+    # 1. CHECKOUT
+    # ========================================================
+
+    - checkout: self
+      clean: true
+      displayName: 'Checkout source code'
+
+
+    # ========================================================
+    # 2. CONFIGURE PYTHON / CHECKOV
+    # ========================================================
+
+    - powershell: |
+
+        $pythonHome = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+        $pythonScripts = "$pythonHome\Scripts"
+
+        $env:Path = "$pythonHome;$pythonScripts;$env:Path"
+
+        Write-Host "Python:"
+        & "$pythonHome\python.exe" --version
+
+        Write-Host "Checkov:"
+        & "$pythonScripts\checkov.cmd" --version
+
+      displayName: 'Configure DevSecOps Tools'
+
+
+    # ========================================================
+    # 3. DOWNLOAD TERRAFORM.TFVARS SECURE FILE
+    # ========================================================
+
+    - task: DownloadSecureFile@1
+      name: tfvars
+      displayName: 'Download Terraform Variables'
+      inputs:
+        secureFile: 'terraform.tfvars'
+
+
+    # ========================================================
+    # 4. COPY TFVARS TO DEV DIRECTORY
+    # ========================================================
+
+    - powershell: |
+
+        $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+        $secureFile = "$(tfvars.secureFilePath)"
+        $destination = "$tfDir\terraform.tfvars"
+
+        Write-Host "Terraform directory:"
+        Write-Host $tfDir
+
+        if (-not (Test-Path $tfDir)) {
+          Write-Error "Terraform working directory not found."
+          exit 1
+        }
+
+        if (-not (Test-Path $secureFile)) {
+          Write-Error "Secure terraform.tfvars file was not downloaded."
+          exit 1
+        }
+
+        Copy-Item `
+          -Path $secureFile `
+          -Destination $destination `
+          -Force
+
+        Write-Host "terraform.tfvars copied successfully."
+
+      displayName: 'Prepare Terraform Variables'
+
+
+    # ========================================================
+    # 5. AZURE LOGIN
+    # ========================================================
+
+    - powershell: |
+
+        Write-Host "Logging into Azure..."
+
+        az login `
+          --service-principal `
+          --username "$env:AZURE_CLIENT_ID" `
+          --password "$env:AZURE_CLIENT_SECRET" `
+          --tenant "$env:AZURE_TENANT_ID"
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Azure login failed."
+          exit 1
+        }
+
+        az account set `
+          --subscription "$env:AZURE_SUBSCRIPTION_ID"
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Azure subscription selection failed."
+          exit 1
+        }
+
+        Write-Host "Azure login successful."
+
+        az account show
+
+      displayName: 'Azure Login'
+
+      env:
+        AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
+        AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+        AZURE_TENANT_ID: $(AZURE_TENANT_ID)
+        AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+
+
+    # ========================================================
+    # 6. TERRAFORM FMT
+    # ========================================================
+
+    - powershell: |
+
+        Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+        Write-Host "Terraform Format Check"
+
+        terraform fmt -check -recursive
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Terraform format check failed."
+          exit 1
+        }
+
+        Write-Host "Terraform format check passed."
+
+      displayName: 'Terraform - Format Check'
+
+
+    # ========================================================
+    # 7. TERRAFORM INIT
+    # ========================================================
+
+    - powershell: |
+
+        Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+        terraform init -input=false
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Terraform init failed."
+          exit 1
+        }
+
+        Write-Host "Terraform init completed."
+
+      displayName: 'Terraform - Init'
+
+
+    # ========================================================
+    # 8. TERRAFORM VALIDATE
+    # ========================================================
+
+    - powershell: |
+
+        Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+        terraform validate
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Terraform validation failed."
+          exit 1
+        }
+
+        Write-Host "Terraform validation passed."
+
+      displayName: 'Terraform - Validate'
+
+
+    # ========================================================
+    # 9. TERRAFORM PLAN
+    # ========================================================
+
+    - powershell: |
+
+        Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+        terraform plan `
+          -input=false `
+          -out=tfplan
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Terraform plan failed."
+          exit 1
+        }
+
+        Write-Host "Terraform plan completed successfully."
+
+      displayName: 'Terraform - Plan'
+
+
+    # ========================================================
+    # 10. PUBLISH PLAN
+    # ========================================================
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Terraform Plan'
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)\$(TF_WORKING_DIR)\tfplan'
+        artifact: 'terraform-plan'
+        publishLocation: 'pipeline'
+
+
+# ============================================================
+# STAGE 2 - APPROVAL + TERRAFORM APPLY
+# ============================================================
+
+- stage: Terraform_Apply
+  displayName: 'Terraform Apply - DEV'
+
+  dependsOn:
+  - Terraform_Plan
+
+  condition: succeeded()
+
+  jobs:
+
+  # ==========================================================
+  # DEV ENVIRONMENT
+  #
+  # Approval is configured in:
+  # Pipelines -> Environments -> dev
+  # -> Approvals and checks
+  # ==========================================================
+
+  - deployment: TerraformApply
+    displayName: 'Terraform Apply - DEV'
+
+    environment:
+      name: dev
+
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+
+          # ==================================================
+          # 1. CHECKOUT
+          # ==================================================
+
+          - checkout: self
+            clean: true
+            displayName: 'Checkout source code'
+
+
+          # ==================================================
+          # 2. DOWNLOAD TERRAFORM.TFVARS
+          # ==================================================
+
+          - task: DownloadSecureFile@1
+            name: tfvarsApply
+            displayName: 'Download Terraform Variables'
+            inputs:
+              secureFile: 'terraform.tfvars'
+
+
+          # ==================================================
+          # 3. COPY TFVARS
+          # ==================================================
+
+          - powershell: |
+
+              $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+              $secureFile = "$(tfvarsApply.secureFilePath)"
+              $destination = "$tfDir\terraform.tfvars"
+
+              if (-not (Test-Path $tfDir)) {
+                Write-Error "Terraform working directory not found."
+                exit 1
+              }
+
+              if (-not (Test-Path $secureFile)) {
+                Write-Error "Secure terraform.tfvars file was not downloaded."
+                exit 1
+              }
+
+              Copy-Item `
+                -Path $secureFile `
+                -Destination $destination `
+                -Force
+
+              Write-Host "terraform.tfvars copied successfully."
+
+            displayName: 'Prepare Terraform Variables'
+
+
+          # ==================================================
+          # 4. AZURE LOGIN
+          # ==================================================
+
+          - powershell: |
+
+              Write-Host "Logging into Azure..."
+
+              az login `
+                --service-principal `
+                --username "$env:AZURE_CLIENT_ID" `
+                --password "$env:AZURE_CLIENT_SECRET" `
+                --tenant "$env:AZURE_TENANT_ID"
+
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Azure login failed."
+                exit 1
+              }
+
+              az account set `
+                --subscription "$env:AZURE_SUBSCRIPTION_ID"
+
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Azure subscription selection failed."
+                exit 1
+              }
+
+              Write-Host "Azure login successful."
+
+            displayName: 'Azure Login - Apply'
+
+            env:
+              AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
+              AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+              AZURE_TENANT_ID: $(AZURE_TENANT_ID)
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+
+
+          # ==================================================
+          # 5. TERRAFORM INIT
+          # ==================================================
+
+          - powershell: |
+
+              Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+              terraform init -input=false
+
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Terraform init failed."
+                exit 1
+              }
+
+            displayName: 'Terraform - Init for Apply'
+
+
+          # ==================================================
+          # 6. DOWNLOAD PLAN ARTIFACT
+          # ==================================================
+
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Terraform Plan'
+            inputs:
+              buildType: 'current'
+              artifactName: 'terraform-plan'
+              targetPath: '$(Pipeline.Workspace)\terraform-plan'
+
+
+          # ==================================================
+          # 7. COPY PLAN
+          # ==================================================
+
+          - powershell: |
+
+              $source = "$(Pipeline.Workspace)\terraform-plan\tfplan"
+              $destination = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)\tfplan"
+
+              if (-not (Test-Path $source)) {
+                Write-Error "Terraform plan artifact not found."
+                exit 1
+              }
+
+              Copy-Item `
+                -Path $source `
+                -Destination $destination `
+                -Force
+
+              Write-Host "Terraform plan copied successfully."
+
+            displayName: 'Prepare Terraform Plan'
+
+
+          # ==================================================
+          # 8. TERRAFORM APPLY
+          # ==================================================
+
+          - powershell: |
+
+              Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+
+              Write-Host "=============================================="
+              Write-Host "TERRAFORM APPLY - DEV"
+              Write-Host "=============================================="
+
+              terraform apply `
+                -input=false `
+                -auto-approve `
+                tfplan
+
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Terraform apply failed."
+                exit 1
+              }
+
+              Write-Host "=============================================="
+              Write-Host "TERRAFORM APPLY COMPLETED SUCCESSFULLY"
+              Write-Host "ENVIRONMENT: DEV"
+              Write-Host "=============================================="
+
+            displayName: 'Terraform - Apply DEV'
+
