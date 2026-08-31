@@ -21,7 +21,7 @@ stages:
   jobs:
 
   - job: Plan
-    displayName: 'Terraform Plan - DEV'
+    displayName: 'Terraform Plan'
 
     steps:
 
@@ -35,23 +35,23 @@ stages:
 
 
     # ========================================================
-    # 2. VERIFY TERRAFORM
+    # 2. CONFIGURE PYTHON / CHECKOV
     # ========================================================
 
     - powershell: |
 
-        Write-Host "=============================================="
-        Write-Host "VERIFY TERRAFORM"
-        Write-Host "=============================================="
+        $pythonHome = "C:\Users\Niklesh k\AppData\Local\Programs\Python\Python312"
+        $pythonScripts = "$pythonHome\Scripts"
 
-        terraform version
+        $env:Path = "$pythonHome;$pythonScripts;$env:Path"
 
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "Terraform is not available."
-          exit 1
-        }
+        Write-Host "Python:"
+        & "$pythonHome\python.exe" --version
 
-      displayName: 'Verify Terraform'
+        Write-Host "Checkov:"
+        & "$pythonScripts\checkov.cmd" --version
+
+      displayName: 'Configure DevSecOps Tools'
 
 
     # ========================================================
@@ -61,6 +61,7 @@ stages:
     - powershell: |
 
         $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+        $tfvarsFile = "$tfDir\terraform.tfvars"
 
         Write-Host "Terraform directory:"
         Write-Host $tfDir
@@ -71,12 +72,19 @@ stages:
         }
 
         if (-not $env:TFVARS_CONTENT) {
-          Write-Error "TFVARS_CONTENT is empty."
+          Write-Error "TFVARS_CONTENT secret variable is empty."
+          exit 1
+        }
+
+        # Prevent literal Azure DevOps variable syntax from
+        # accidentally being written into terraform.tfvars.
+        if ($env:TFVARS_CONTENT -match '^\s*\$\([A-Za-z0-9_]+\)\s*$') {
+          Write-Error "TFVARS_CONTENT contains a literal Azure DevOps variable reference instead of the actual tfvars content."
           exit 1
         }
 
         [System.IO.File]::WriteAllText(
-          "$tfDir\terraform.tfvars",
+          $tfvarsFile,
           $env:TFVARS_CONTENT,
           [System.Text.UTF8Encoding]::new($false)
         )
@@ -95,9 +103,7 @@ stages:
 
     - powershell: |
 
-        Write-Host "=============================================="
-        Write-Host "AZURE LOGIN"
-        Write-Host "=============================================="
+        Write-Host "Logging into Azure..."
 
         az login `
           --service-principal `
@@ -132,16 +138,14 @@ stages:
 
 
     # ========================================================
-    # 5. TERRAFORM FORMAT
+    # 5. TERRAFORM FMT
     # ========================================================
 
     - powershell: |
 
         Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-        Write-Host "=============================================="
-        Write-Host "TERRAFORM FORMAT CHECK"
-        Write-Host "=============================================="
+        Write-Host "Terraform Format Check"
 
         terraform fmt -check -recursive
 
@@ -163,10 +167,6 @@ stages:
 
         Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-        Write-Host "=============================================="
-        Write-Host "TERRAFORM INIT"
-        Write-Host "=============================================="
-
         terraform init -input=false
 
         if ($LASTEXITCODE -ne 0) {
@@ -186,10 +186,6 @@ stages:
     - powershell: |
 
         Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-
-        Write-Host "=============================================="
-        Write-Host "TERRAFORM VALIDATE"
-        Write-Host "=============================================="
 
         terraform validate
 
@@ -211,10 +207,6 @@ stages:
 
         Set-Location "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
 
-        Write-Host "=============================================="
-        Write-Host "TERRAFORM PLAN - DEV"
-        Write-Host "=============================================="
-
         terraform plan `
           -input=false `
           -out=tfplan
@@ -230,7 +222,7 @@ stages:
 
 
     # ========================================================
-    # 9. PUBLISH TFPLAN
+    # 9. PUBLISH PLAN
     # ========================================================
 
     - task: PublishPipelineArtifact@1
@@ -242,7 +234,7 @@ stages:
 
 
 # ============================================================
-# STAGE 2 - APPROVAL + APPLY
+# STAGE 2 - TERRAFORM APPLY
 # ============================================================
 
 - stage: Terraform_Apply
@@ -256,26 +248,26 @@ stages:
   jobs:
 
   # ==========================================================
-  # IMPORTANT:
-  # environment: dev
+  # DEV ENVIRONMENT
   #
-  # Azure DevOps will check the approval configured on
-  # Pipelines -> Environments -> dev -> Approvals and checks
-  # BEFORE this deployment starts.
+  # IMPORTANT:
+  # Azure DevOps will check:
+  #
+  # Environments
+  #    -> dev
+  #       -> Approvals and checks
+  #
+  # BEFORE this deployment job starts.
   # ==========================================================
 
   - deployment: TerraformApply
     displayName: 'Terraform Apply - DEV'
 
-    environment: 'dev'
-
-    pool:
-      name: Terraform-Agent-Pool
+    environment:
+      name: dev
 
     strategy:
-
       runOnce:
-
         deploy:
 
           steps:
@@ -290,7 +282,7 @@ stages:
 
 
           # ==================================================
-          # 2. DOWNLOAD TFPLAN
+          # 2. DOWNLOAD PLAN
           # ==================================================
 
           - task: DownloadPipelineArtifact@2
@@ -302,12 +294,13 @@ stages:
 
 
           # ==================================================
-          # 3. CREATE TERRAFORM.TFVARS
+          # 3. CREATE TFVARS
           # ==================================================
 
           - powershell: |
 
               $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
+              $tfvarsFile = "$tfDir\terraform.tfvars"
 
               Write-Host "Terraform directory:"
               Write-Host $tfDir
@@ -318,12 +311,17 @@ stages:
               }
 
               if (-not $env:TFVARS_CONTENT) {
-                Write-Error "TFVARS_CONTENT is empty."
+                Write-Error "TFVARS_CONTENT secret variable is empty."
+                exit 1
+              }
+
+              if ($env:TFVARS_CONTENT -match '^\s*\$\([A-Za-z0-9_]+\)\s*$') {
+                Write-Error "TFVARS_CONTENT contains a literal Azure DevOps variable reference instead of actual tfvars content."
                 exit 1
               }
 
               [System.IO.File]::WriteAllText(
-                "$tfDir\terraform.tfvars",
+                $tfvarsFile,
                 $env:TFVARS_CONTENT,
                 [System.Text.UTF8Encoding]::new($false)
               )
@@ -342,9 +340,7 @@ stages:
 
           - powershell: |
 
-              Write-Host "=============================================="
-              Write-Host "AZURE LOGIN FOR APPLY"
-              Write-Host "=============================================="
+              Write-Host "Logging into Azure..."
 
               az login `
                 --service-principal `
@@ -366,6 +362,8 @@ stages:
               }
 
               Write-Host "Azure login successful."
+
+              az account show
 
             displayName: 'Azure Login - Apply'
 
@@ -397,7 +395,7 @@ stages:
 
 
           # ==================================================
-          # 6. COPY TFPLAN
+          # 6. COPY PLAN
           # ==================================================
 
           - powershell: |
