@@ -4,6 +4,7 @@ trigger:
 
 pool:
   name: Terraform-Agent-Pool
+  
 
 variables:
   TF_IN_AUTOMATION: 'true'
