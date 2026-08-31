@@ -55,13 +55,25 @@ stages:
 
 
     # ========================================================
-    # 3. CREATE TERRAFORM.TFVARS
+    # 3. DOWNLOAD TERRAFORM.TFVARS SECURE FILE
+    # ========================================================
+
+    - task: DownloadSecureFile@1
+      name: tfvars
+      displayName: 'Download Terraform Variables'
+      inputs:
+        secureFile: 'terraform.tfvars'
+
+
+    # ========================================================
+    # 4. COPY TFVARS TO DEV DIRECTORY
     # ========================================================
 
     - powershell: |
 
         $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-        $tfvarsFile = "$tfDir\terraform.tfvars"
+        $secureFile = "$(tfvars.secureFilePath)"
+        $destination = "$tfDir\terraform.tfvars"
 
         Write-Host "Terraform directory:"
         Write-Host $tfDir
@@ -71,34 +83,23 @@ stages:
           exit 1
         }
 
-        if (-not $env:TFVARS_CONTENT) {
-          Write-Error "TFVARS_CONTENT secret variable is empty."
+        if (-not (Test-Path $secureFile)) {
+          Write-Error "Secure terraform.tfvars file was not downloaded."
           exit 1
         }
 
-        # Prevent literal Azure DevOps variable syntax from
-        # accidentally being written into terraform.tfvars.
-        if ($env:TFVARS_CONTENT -match '^\s*\$\([A-Za-z0-9_]+\)\s*$') {
-          Write-Error "TFVARS_CONTENT contains a literal Azure DevOps variable reference instead of the actual tfvars content."
-          exit 1
-        }
+        Copy-Item `
+          -Path $secureFile `
+          -Destination $destination `
+          -Force
 
-        [System.IO.File]::WriteAllText(
-          $tfvarsFile,
-          $env:TFVARS_CONTENT,
-          [System.Text.UTF8Encoding]::new($false)
-        )
+        Write-Host "terraform.tfvars copied successfully."
 
-        Write-Host "terraform.tfvars created successfully."
-
-      displayName: 'Create Terraform Variables'
-
-      env:
-        TFVARS_CONTENT: $(TFVARS_CONTENT)
+      displayName: 'Prepare Terraform Variables'
 
 
     # ========================================================
-    # 4. AZURE LOGIN
+    # 5. AZURE LOGIN
     # ========================================================
 
     - powershell: |
@@ -138,7 +139,7 @@ stages:
 
 
     # ========================================================
-    # 5. TERRAFORM FMT
+    # 6. TERRAFORM FMT
     # ========================================================
 
     - powershell: |
@@ -160,7 +161,7 @@ stages:
 
 
     # ========================================================
-    # 6. TERRAFORM INIT
+    # 7. TERRAFORM INIT
     # ========================================================
 
     - powershell: |
@@ -180,7 +181,7 @@ stages:
 
 
     # ========================================================
-    # 7. TERRAFORM VALIDATE
+    # 8. TERRAFORM VALIDATE
     # ========================================================
 
     - powershell: |
@@ -200,7 +201,7 @@ stages:
 
 
     # ========================================================
-    # 8. TERRAFORM PLAN
+    # 9. TERRAFORM PLAN
     # ========================================================
 
     - powershell: |
@@ -222,7 +223,7 @@ stages:
 
 
     # ========================================================
-    # 9. PUBLISH PLAN
+    # 10. PUBLISH PLAN
     # ========================================================
 
     - task: PublishPipelineArtifact@1
@@ -234,7 +235,7 @@ stages:
 
 
 # ============================================================
-# STAGE 2 - TERRAFORM APPLY
+# STAGE 2 - APPROVAL + TERRAFORM APPLY
 # ============================================================
 
 - stage: Terraform_Apply
@@ -250,14 +251,9 @@ stages:
   # ==========================================================
   # DEV ENVIRONMENT
   #
-  # IMPORTANT:
-  # Azure DevOps will check:
-  #
-  # Environments
-  #    -> dev
-  #       -> Approvals and checks
-  #
-  # BEFORE this deployment job starts.
+  # Approval is configured in:
+  # Pipelines -> Environments -> dev
+  # -> Approvals and checks
   # ==========================================================
 
   - deployment: TerraformApply
@@ -282,56 +278,44 @@ stages:
 
 
           # ==================================================
-          # 2. DOWNLOAD PLAN
+          # 2. DOWNLOAD TERRAFORM.TFVARS
           # ==================================================
 
-          - task: DownloadPipelineArtifact@2
-            displayName: 'Download Terraform Plan'
+          - task: DownloadSecureFile@1
+            name: tfvarsApply
+            displayName: 'Download Terraform Variables'
             inputs:
-              buildType: 'current'
-              artifactName: 'terraform-plan'
-              targetPath: '$(Pipeline.Workspace)\terraform-plan'
+              secureFile: 'terraform.tfvars'
 
 
           # ==================================================
-          # 3. CREATE TFVARS
+          # 3. COPY TFVARS
           # ==================================================
 
           - powershell: |
 
               $tfDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-              $tfvarsFile = "$tfDir\terraform.tfvars"
-
-              Write-Host "Terraform directory:"
-              Write-Host $tfDir
+              $secureFile = "$(tfvarsApply.secureFilePath)"
+              $destination = "$tfDir\terraform.tfvars"
 
               if (-not (Test-Path $tfDir)) {
                 Write-Error "Terraform working directory not found."
                 exit 1
               }
 
-              if (-not $env:TFVARS_CONTENT) {
-                Write-Error "TFVARS_CONTENT secret variable is empty."
+              if (-not (Test-Path $secureFile)) {
+                Write-Error "Secure terraform.tfvars file was not downloaded."
                 exit 1
               }
 
-              if ($env:TFVARS_CONTENT -match '^\s*\$\([A-Za-z0-9_]+\)\s*$') {
-                Write-Error "TFVARS_CONTENT contains a literal Azure DevOps variable reference instead of actual tfvars content."
-                exit 1
-              }
+              Copy-Item `
+                -Path $secureFile `
+                -Destination $destination `
+                -Force
 
-              [System.IO.File]::WriteAllText(
-                $tfvarsFile,
-                $env:TFVARS_CONTENT,
-                [System.Text.UTF8Encoding]::new($false)
-              )
+              Write-Host "terraform.tfvars copied successfully."
 
-              Write-Host "terraform.tfvars created successfully."
-
-            displayName: 'Create Terraform Variables'
-
-            env:
-              TFVARS_CONTENT: $(TFVARS_CONTENT)
+            displayName: 'Prepare Terraform Variables'
 
 
           # ==================================================
@@ -363,8 +347,6 @@ stages:
 
               Write-Host "Azure login successful."
 
-              az account show
-
             displayName: 'Azure Login - Apply'
 
             env:
@@ -389,25 +371,29 @@ stages:
                 exit 1
               }
 
-              Write-Host "Terraform init completed."
-
             displayName: 'Terraform - Init for Apply'
 
 
           # ==================================================
-          # 6. COPY PLAN
+          # 6. DOWNLOAD PLAN ARTIFACT
+          # ==================================================
+
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Terraform Plan'
+            inputs:
+              buildType: 'current'
+              artifactName: 'terraform-plan'
+              targetPath: '$(Pipeline.Workspace)\terraform-plan'
+
+
+          # ==================================================
+          # 7. COPY PLAN
           # ==================================================
 
           - powershell: |
 
               $source = "$(Pipeline.Workspace)\terraform-plan\tfplan"
               $destination = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)\tfplan"
-
-              Write-Host "Plan source:"
-              Write-Host $source
-
-              Write-Host "Plan destination:"
-              Write-Host $destination
 
               if (-not (Test-Path $source)) {
                 Write-Error "Terraform plan artifact not found."
@@ -425,7 +411,7 @@ stages:
 
 
           # ==================================================
-          # 7. TERRAFORM APPLY
+          # 8. TERRAFORM APPLY
           # ==================================================
 
           - powershell: |
