@@ -1,6 +1,6 @@
 
 trigger:
-- fetaure
+- fetaures
 
 pool:
   name: Terraform-Agent-Pool
