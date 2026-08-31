@@ -4,7 +4,6 @@ trigger:
 
 pool:
   name: Terraform-Agent-Pool
-  
 
 variables:
   TF_IN_AUTOMATION: 'true'
@@ -13,7 +12,7 @@ variables:
 steps:
 
 # ============================================================
-# 1. CHECKOUT
+# 1. CHECKOUT SOURCE CODE
 # ============================================================
 
 - checkout: self
@@ -22,74 +21,109 @@ steps:
 
 
 # ============================================================
-# 2. CREATE TERRAFORM.TFVARS
+# 2. DOWNLOAD SECURE TERRAFORM.TFVARS
+# ============================================================
+
+- task: DownloadSecureFile@1
+  name: tfvarsFile
+  displayName: 'Download terraform.tfvars - DEV'
+  inputs:
+    secureFile: 'terraform.tfvars'
+
+
+# ============================================================
+# 3. COPY TERRAFORM.TFVARS TO DEV WORKING DIRECTORY
 # ============================================================
 
 - powershell: |
 
     Write-Host "=============================================="
-    Write-Host "CREATING TERRAFORM.TFVARS - DEV"
+    Write-Host "PREPARING TERRAFORM.TFVARS - DEV"
     Write-Host "=============================================="
 
+    $source = "$(tfvarsFile.secureFilePath)"
     $workingDir = "$(Build.SourcesDirectory)\$(TF_WORKING_DIR)"
-    $tfvarsPath = "$workingDir\terraform.tfvars"
+    $destination = "$workingDir\terraform.tfvars"
 
-    if (-not $env:TFVARS_CONTENT) {
-      Write-Error "TFVARS_CONTENT variable is not configured."
-      exit 1
+    Write-Host "Secure file:"
+    Write-Host $source
+
+    Write-Host "Terraform working directory:"
+    Write-Host $workingDir
+
+    if (-not (Test-Path $source)) {
+        Write-Error "Secure terraform.tfvars was not downloaded."
+        exit 1
     }
 
-    $env:TFVARS_CONTENT | Out-File `
-      -FilePath $tfvarsPath `
-      -Encoding utf8 `
-      -NoNewline
-
-    if (-not (Test-Path $tfvarsPath)) {
-      Write-Error "terraform.tfvars was not created."
-      exit 1
+    if (-not (Test-Path $workingDir)) {
+        Write-Error "Terraform working directory does not exist."
+        exit 1
     }
 
-    Write-Host "terraform.tfvars created successfully."
+    Copy-Item `
+        -Path $source `
+        -Destination $destination `
+        -Force
 
-  displayName: 'Create Terraform tfvars'
-
-  env:
-    TFVARS_CONTENT: $(TFVARS_CONTENT)
-
-
-# ============================================================
-# 3. VERIFY TOOLS
-# ============================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "VERIFY TERRAFORM AND AZURE CLI"
-    Write-Host "=============================================="
+    if (-not (Test-Path $destination)) {
+        Write-Error "terraform.tfvars was not copied."
+        exit 1
+    }
 
     Write-Host ""
-    Write-Host "Terraform:"
+    Write-Host "terraform.tfvars copied successfully."
+    Write-Host "DEV terraform configuration is ready."
+
+  displayName: 'Prepare Terraform tfvars - DEV'
+
+
+# ============================================================
+# 4. VERIFY TERRAFORM
+# ============================================================
+
+- powershell: |
+
+    Write-Host "=============================================="
+    Write-Host "VERIFY TERRAFORM"
+    Write-Host "=============================================="
+
     terraform version
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform is not available."
-      exit 1
+        Write-Error "Terraform is not available on the agent."
+        exit 1
     }
 
-    Write-Host ""
-    Write-Host "Azure CLI:"
-    az version
+    Write-Host "Terraform verification completed."
 
-    if ($LASTEXITCODE -ne 0) {
-      Write-Error "Azure CLI is not available."
-      exit 1
-    }
-
-  displayName: 'Verify Terraform and Azure CLI'
+  displayName: 'Verify Terraform'
 
 
 # ============================================================
-# 4. TERRAFORM FORMAT
+# 5. VERIFY AZURE CLI
+# ============================================================
+
+- powershell: |
+
+    Write-Host "=============================================="
+    Write-Host "VERIFY AZURE CLI"
+    Write-Host "=============================================="
+
+    az version
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Azure CLI is not available on the agent."
+        exit 1
+    }
+
+    Write-Host "Azure CLI verification completed."
+
+  displayName: 'Verify Azure CLI'
+
+
+# ============================================================
+# 6. TERRAFORM FORMAT CHECK
 # ============================================================
 
 - powershell: |
@@ -103,8 +137,8 @@ steps:
     terraform fmt -check -recursive
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform format check failed."
-      exit 1
+        Write-Error "Terraform format check failed."
+        exit 1
     }
 
     Write-Host "Terraform format check passed."
@@ -113,7 +147,7 @@ steps:
 
 
 # ============================================================
-# 5. TERRAFORM INIT
+# 7. TERRAFORM INIT
 # ============================================================
 
 - powershell: |
@@ -127,17 +161,17 @@ steps:
     terraform init -input=false
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform init failed."
-      exit 1
+        Write-Error "Terraform init failed."
+        exit 1
     }
 
-    Write-Host "Terraform init completed."
+    Write-Host "Terraform init completed successfully."
 
   displayName: 'Terraform - Init'
 
 
 # ============================================================
-# 6. TERRAFORM VALIDATE
+# 8. TERRAFORM VALIDATE
 # ============================================================
 
 - powershell: |
@@ -151,8 +185,8 @@ steps:
     terraform validate
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform validation failed."
-      exit 1
+        Write-Error "Terraform validation failed."
+        exit 1
     }
 
     Write-Host "Terraform validation passed."
@@ -161,7 +195,7 @@ steps:
 
 
 # ============================================================
-# 7. AZURE LOGIN USING SERVICE PRINCIPAL VARIABLES
+# 9. AZURE LOGIN
 # ============================================================
 
 - powershell: |
@@ -170,27 +204,48 @@ steps:
     Write-Host "AZURE LOGIN - DEV"
     Write-Host "=============================================="
 
-    $securePassword = ConvertTo-SecureString `
-      $env:AZURE_CLIENT_SECRET `
-      -AsPlainText `
-      -Force
+    if (-not $env:AZURE_CLIENT_ID) {
+        Write-Error "AZURE_CLIENT_ID is not configured."
+        exit 1
+    }
 
-    $credential = New-Object `
-      System.Management.Automation.PSCredential(
-        $env:AZURE_CLIENT_ID,
-        $securePassword
-      )
+    if (-not $env:AZURE_CLIENT_SECRET) {
+        Write-Error "AZURE_CLIENT_SECRET is not configured."
+        exit 1
+    }
 
-    Connect-AzAccount `
-      -ServicePrincipal `
-      -Tenant $env:AZURE_TENANT_ID `
-      -Credential $credential
+    if (-not $env:AZURE_TENANT_ID) {
+        Write-Error "AZURE_TENANT_ID is not configured."
+        exit 1
+    }
 
-    Set-AzContext `
-      -SubscriptionId $env:AZURE_SUBSCRIPTION_ID
+    if (-not $env:AZURE_SUBSCRIPTION_ID) {
+        Write-Error "AZURE_SUBSCRIPTION_ID is not configured."
+        exit 1
+    }
+
+    az login `
+        --service-principal `
+        --username "$env:AZURE_CLIENT_ID" `
+        --password "$env:AZURE_CLIENT_SECRET" `
+        --tenant "$env:AZURE_TENANT_ID" `
+        --output none
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Azure login failed."
+        exit 1
+    }
+
+    az account set `
+        --subscription "$env:AZURE_SUBSCRIPTION_ID"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Azure subscription selection failed."
+        exit 1
+    }
 
     Write-Host "Azure login successful."
-    Write-Host "Subscription configured successfully."
+    Write-Host "Azure subscription selected successfully."
 
   displayName: 'Azure Login - DEV'
 
@@ -202,48 +257,7 @@ steps:
 
 
 # ============================================================
-# 8. AZURE CLI LOGIN FOR TERRAFORM
-# ============================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "AZURE CLI LOGIN - DEV"
-    Write-Host "=============================================="
-
-    az login `
-      --service-principal `
-      --username $env:AZURE_CLIENT_ID `
-      --password $env:AZURE_CLIENT_SECRET `
-      --tenant $env:AZURE_TENANT_ID `
-      --output none
-
-    if ($LASTEXITCODE -ne 0) {
-      Write-Error "Azure CLI login failed."
-      exit 1
-    }
-
-    az account set `
-      --subscription $env:AZURE_SUBSCRIPTION_ID
-
-    if ($LASTEXITCODE -ne 0) {
-      Write-Error "Azure subscription selection failed."
-      exit 1
-    }
-
-    Write-Host "Azure CLI login successful."
-
-  displayName: 'Azure CLI Login - DEV'
-
-  env:
-    AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
-    AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
-    AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
-    AZURE_TENANT_ID: $(AZURE_TENANT_ID)
-
-
-# ============================================================
-# 9. TERRAFORM PLAN
+# 10. TERRAFORM PLAN
 # ============================================================
 
 - powershell: |
@@ -255,14 +269,15 @@ steps:
     Write-Host "=============================================="
 
     terraform plan `
-      -input=false `
-      -out=tfplan
+        -input=false `
+        -out=tfplan
 
     if ($LASTEXITCODE -ne 0) {
-      Write-Error "Terraform plan failed."
-      exit 1
+        Write-Error "Terraform plan failed."
+        exit 1
     }
 
+    Write-Host ""
     Write-Host "Terraform plan completed successfully."
 
   displayName: 'Terraform - Plan DEV'
@@ -275,7 +290,7 @@ steps:
 
 
 # ============================================================
-# 10. PUBLISH TERRAFORM PLAN
+# 11. PUBLISH TERRAFORM PLAN
 # ============================================================
 
 - task: PublishPipelineArtifact@1
@@ -287,7 +302,7 @@ steps:
 
 
 # ============================================================
-# 11. CD PLAN COMPLETED
+# 12. DEV CD PLAN COMPLETED
 # ============================================================
 
 - powershell: |
@@ -296,13 +311,17 @@ steps:
     Write-Host "       DEV CD PLAN COMPLETED"
     Write-Host "=============================================="
 
+    Write-Host ""
     Write-Host "Environment : DEV"
     Write-Host "Branch      : $(Build.SourceBranch)"
     Write-Host "Build       : $(Build.BuildNumber)"
 
     Write-Host ""
-    Write-Host "Terraform plan artifact published."
-    Write-Host "NO TERRAFORM APPLY WAS EXECUTED."
+    Write-Host "Terraform Plan artifact published."
+    Write-Host ""
+    Write-Host "IMPORTANT:"
+    Write-Host "Terraform APPLY was NOT executed."
+    Write-Host "Approval will be required before APPLY."
 
   displayName: 'DEV Plan Completed'
 
