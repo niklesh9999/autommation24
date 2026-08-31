@@ -3,6 +3,7 @@ module "rg" {
   rg     = var.rg
 }
 
+
 module "vnet" {
   depends_on = [module.rg]
 
