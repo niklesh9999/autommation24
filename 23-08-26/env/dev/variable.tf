@@ -6,6 +6,7 @@ variable "rg" {
 variable "vnet" {
   type = map(any)
 
+
 }
 
 variable "subnet" {
@@ -16,9 +17,7 @@ variable "subnet" {
 variable "pip" {
   type = map(any)
 
-
 }
-
 
 
 variable "nic" {

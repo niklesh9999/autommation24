@@ -7,6 +7,9 @@ resource "azurerm_subnet" "subnet" {
   address_prefixes     = each.value.address_prefixes
 }
 
+
+
+
 resource "azurerm_subnet_network_security_group_association" "association" {
 
   for_each = var.subnet
