@@ -20,8 +20,6 @@ variable "pip" {
 }
 
 
-
-
 variable "nic" {
   type = map(any)
 
