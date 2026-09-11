@@ -17,7 +17,6 @@ variable "subnet" {
 variable "pip" {
   type = map(any)
 
-
 }
 
 
